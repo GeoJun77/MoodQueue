@@ -1,6 +1,6 @@
 # MoodQueue 🎵
 
-Generate Spotify playlists from your mood — powered by AI.
+Generate Spotify playlists from your mood
 
 ## Tech Stack
 
