@@ -1,0 +1,42 @@
+services:
+  # Your FastAPI backend
+  backend:
+    build: ./backend          # Docker reads the Dockerfile in this folder
+    ports:
+      - "8000:8000"           # local_port:container_port — access via localhost:8000
+    volumes:
+      - ./backend:/app        # Syncs your local code into the container in real time
+    env_file:
+      - ./backend/.env        # Injects all environment variables from your .env file
+    depends_on:
+      db:
+        condition: service_healthy  # Backend waits for Postgres to be ready before starting
+      redis:
+        condition: service_started
+
+  # PostgreSQL database
+  db:
+    image: postgres:16-alpine       # Official PostgreSQL image, alpine variant (lightweight)
+    environment:
+      POSTGRES_USER: moodqueue
+      POSTGRES_PASSWORD: moodqueue
+      POSTGRES_DB: moodqueue
+    ports:
+      - "5432:5432"                 # Expose port so you can connect with DBeaver or pgAdmin
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # Data persists even if the container is removed
+    healthcheck:                    # Docker checks Postgres is responding before starting backend
+      test: ["CMD-SHELL", "pg_isready -U moodqueue"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+# Named volumes persist on your machine even if containers are deleted
+volumes:
+  postgres_data:
