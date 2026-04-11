@@ -45,3 +45,7 @@ openai==1.30.1
 
 # Reads environment variables from the .env file
 python-dotenv==1.0.1
+
+# Synchronous PostgreSQL driver used by Alembic for migrations
+# (asyncpg is async-only and can't be used by Alembic directly)
+psycopg2-binary==2.9.9
