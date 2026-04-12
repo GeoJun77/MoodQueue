@@ -26,9 +26,10 @@ pydantic-settings==2.2.1
 # Handles JWT token creation and verification for authentication
 python-jose[cryptography]==3.3.0
 
-# Hashes passwords before storing them — you should NEVER
-# store a plain text password in a database
+# passlib stays at 1.7.4 — bcrypt is pinned separately at 4.0.1
+# because newer bcrypt versions break passlib's hash handler
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 
 # Required to parse form data sent over HTTP
 python-multipart==0.0.9
