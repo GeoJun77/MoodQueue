@@ -50,3 +50,7 @@ python-dotenv==1.0.1
 # Synchronous PostgreSQL driver used by Alembic for migrations
 # (asyncpg is async-only and can't be used by Alembic directly)
 psycopg2-binary==2.9.9
+
+# Groq SDK — free alternative to OpenAI, same API format
+# Used for mood analysis via LLaMA3 model
+groq==0.8.0
