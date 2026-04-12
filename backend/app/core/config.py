@@ -27,12 +27,12 @@ class Settings(BaseSettings):
     # OpenAI API key for mood analysis
     OPENAI_API_KEY: str
 
-    # Spotify app credentials (we'll create these in step 5)
+    # Spotify app credentials
     SPOTIFY_CLIENT_ID: str
     SPOTIFY_CLIENT_SECRET: str
 
     # URL Spotify will redirect to after the user grants access
-    SPOTIFY_REDIRECT_URI: str = "http://localhost:8000/api/playlist/callback"
+    SPOTIFY_REDIRECT_URI: str = "https://punk-spyglass-numeral.ngrok-free.dev/api/playlist/callback"
 
     class Config:
         # Tells Pydantic where to look for the config file
