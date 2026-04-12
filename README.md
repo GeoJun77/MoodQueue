@@ -17,7 +17,7 @@ User describes mood → NLP analysis → Spotify playlist generated → saved to
 ## Getting Started
 
 ```bash
-git clone https://github.com/TON_USERNAME/moodqueue
+git clone https://github.com/GeoJun77/moodqueue
 cd moodqueue
 cp .env.example .env
 docker-compose up --build
