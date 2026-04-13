@@ -1,6 +1,7 @@
 import httpx
 import base64
 import asyncio
+import random
 from app.core.config import settings
 
 SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
@@ -14,7 +15,7 @@ def get_spotify_auth_url(user_id: str) -> str:
     """
     Builds the Spotify OAuth2 authorization URL.
     show_dialog=true forces Spotify to show the permission screen again
-    even if the user already granted access — ensures new scopes are applied.
+    to ensure new scopes are properly granted.
     """
     params = {
         "client_id": settings.SPOTIFY_CLIENT_ID,
@@ -30,8 +31,7 @@ def get_spotify_auth_url(user_id: str) -> str:
 
 async def exchange_code_for_tokens(code: str) -> dict:
     """
-    Exchanges the authorization code received from Spotify
-    for actual access and refresh tokens.
+    Exchanges the authorization code for access and refresh tokens.
     """
     credentials = f"{settings.SPOTIFY_CLIENT_ID}:{settings.SPOTIFY_CLIENT_SECRET}"
     encoded = base64.b64encode(credentials.encode()).decode()
@@ -80,8 +80,8 @@ async def refresh_spotify_token(refresh_token: str) -> str:
 
 async def get_valid_access_token(user) -> str:
     """
-    Returns a valid Spotify access token for the given user.
-    Automatically refreshes it if expired.
+    Returns a valid Spotify access token.
+    Automatically refreshes if expired.
     """
     try:
         async with httpx.AsyncClient() as client:
@@ -110,6 +110,249 @@ async def get_spotify_user_id(access_token: str) -> str:
         return response.json()["id"]
 
 
+async def search_single_query(
+    client: httpx.AsyncClient,
+    access_token: str,
+    query: str,
+    limit: int = 8,
+) -> list[str]:
+    """
+    Performs a single Spotify search and returns track URIs.
+    """
+    try:
+        clean_query = query.replace(",", "").replace("-", " ").strip()
+
+        response = await client.get(
+            f"{SPOTIFY_API_URL}/search",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={
+                "q": clean_query,
+                "type": "track",
+                "limit": limit,
+            },
+        )
+
+        if response.status_code != 200:
+            print(f"DEBUG search error for '{clean_query}': {response.status_code}")
+            return []
+
+        data = response.json()
+        tracks = data.get("tracks", {}).get("items", [])
+        return [track["uri"] for track in tracks if track.get("uri")]
+
+    except Exception as e:
+        print(f"DEBUG search exception for '{query}': {e}")
+        return []
+
+
+async def search_tracks_by_artist(
+    client: httpx.AsyncClient,
+    access_token: str,
+    artist: str,
+    limit: int = 10,
+) -> list[str]:
+    """
+    Searches for tracks by a specific artist using two strategies:
+    1. artist: prefix — finds official tracks by this artist
+    2. Plain name search — finds features, remixes, and collaborations
+    Both are merged and deduplicated for maximum coverage.
+    """
+    try:
+        # Strategy 1: strict artist search
+        response1 = await client.get(
+            f"{SPOTIFY_API_URL}/search",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={
+                "q": f"artist:{artist}",
+                "type": "track",
+                "limit": limit,
+            },
+        )
+
+        # Strategy 2: plain name search — catches features and remixes
+        response2 = await client.get(
+            f"{SPOTIFY_API_URL}/search",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={
+                "q": artist,
+                "type": "track",
+                "limit": limit,
+            },
+        )
+
+        uris = []
+        seen = set()
+
+        for response in [response1, response2]:
+            if response.status_code == 200:
+                tracks = response.json().get("tracks", {}).get("items", [])
+                for track in tracks:
+                    uri = track.get("uri")
+                    if uri and uri not in seen:
+                        seen.add(uri)
+                        uris.append(uri)
+
+        print(f"DEBUG artist '{artist}': found {len(uris)} tracks")
+        return uris
+
+    except Exception as e:
+        print(f"DEBUG artist search error for '{artist}': {e}")
+        return []
+
+
+async def search_tracks_by_genre(
+    client: httpx.AsyncClient,
+    access_token: str,
+    genre: str,
+    mood: str,
+    limit: int = 8,
+) -> list[str]:
+    """
+    Searches for tracks in a specific genre.
+    Combines genre with mood for more contextual results.
+    """
+    try:
+        query = f"{genre} {mood}"
+        response = await client.get(
+            f"{SPOTIFY_API_URL}/search",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={
+                "q": query,
+                "type": "track",
+                "limit": limit,
+            },
+        )
+        if response.status_code != 200:
+            return []
+
+        data = response.json()
+        tracks = data.get("tracks", {}).get("items", [])
+        return [track["uri"] for track in tracks if track.get("uri")]
+
+    except Exception as e:
+        print(f"DEBUG genre search error for '{genre}': {e}")
+        return []
+
+
+async def search_tracks_by_mood(
+    access_token: str,
+    mood_data: dict,
+    explicit_artists: list[str] = [],
+    explicit_genres: list[str] = [],
+) -> list[str]:
+    """
+    3-layer smart search system:
+
+    CASE 1 — Explicit artists detected:
+        → ONLY tracks from those artists, no mood filler at all
+        → Tracks shuffled so artists are mixed together
+        → e.g. "I want only Oklou, Addison Rae and Bad Bunny"
+
+    CASE 2 — Explicit genres detected (no artists):
+        → Genre tracks first, mood tracks fill the rest
+        → e.g. "I'm sad but I want electro and house"
+
+    CASE 3 — No explicit preferences:
+        → Pure AI mood queries + genre queries, all shuffled
+        → e.g. "I feel nostalgic tonight"
+    """
+    mood = mood_data.get("mood", "happy")
+    ai_genres = mood_data.get("genres", ["pop", "indie"])
+    search_queries = mood_data.get("search_queries", [mood])
+
+    async with httpx.AsyncClient() as client:
+
+        # CASE 1: Explicit artists → ONLY their tracks
+        if explicit_artists:
+            print(f"DEBUG artist-only mode: {explicit_artists}")
+            artist_tasks = [
+                search_tracks_by_artist(client, access_token, artist, limit=10)
+                for artist in explicit_artists
+            ]
+            # Also include explicit genres if mentioned alongside artists
+            genre_tasks = [
+                search_tracks_by_genre(client, access_token, genre, mood, limit=10)
+                for genre in explicit_genres
+            ]
+
+            all_results = await asyncio.gather(*artist_tasks, *genre_tasks)
+
+            seen = set()
+            final_uris = []
+            for track_list in all_results:
+                for uri in track_list:
+                    if uri not in seen:
+                        seen.add(uri)
+                        final_uris.append(uri)
+
+            # Shuffle so tracks from different artists are interleaved
+            random.shuffle(final_uris)
+            print(f"DEBUG artist-only: {len(final_uris)} tracks")
+            return final_uris[:50]
+
+        # CASE 2: Explicit genres, no artists → genre first then mood
+        if explicit_genres:
+            print(f"DEBUG genre-priority mode: {explicit_genres}")
+            genre_tasks = [
+                search_tracks_by_genre(client, access_token, genre, mood, limit=10)
+                for genre in explicit_genres
+            ]
+            mood_tasks = [
+                search_single_query(client, access_token, query, limit=6)
+                for query in search_queries
+            ]
+            all_results = await asyncio.gather(*genre_tasks, *mood_tasks)
+
+            n_genres = len(explicit_genres)
+            genre_results = all_results[:n_genres]
+            mood_results = all_results[n_genres:]
+
+            seen = set()
+            final_uris = []
+
+            for track_list in genre_results:
+                for uri in track_list:
+                    if uri not in seen:
+                        seen.add(uri)
+                        final_uris.append(uri)
+
+            mood_uris = []
+            for track_list in mood_results:
+                for uri in track_list:
+                    if uri not in seen:
+                        mood_uris.append(uri)
+                        seen.add(uri)
+            random.shuffle(mood_uris)
+            final_uris.extend(mood_uris)
+
+            print(f"DEBUG genre+mood: {len(final_uris)} tracks")
+            return final_uris[:50]
+
+        # CASE 3: No explicit preferences → pure AI mood queries
+        print(f"DEBUG pure mood mode: {len(search_queries)} queries")
+        mood_queries = search_queries.copy()
+        for genre in ai_genres[:4]:
+            mood_queries.append(f"{mood} {genre}")
+
+        mood_tasks = [
+            search_single_query(client, access_token, query, limit=6)
+            for query in mood_queries
+        ]
+        all_results = await asyncio.gather(*mood_tasks)
+
+        seen = set()
+        all_uris = []
+        for track_list in all_results:
+            for uri in track_list:
+                if uri not in seen:
+                    seen.add(uri)
+                    all_uris.append(uri)
+
+        random.shuffle(all_uris)
+        print(f"DEBUG pure mood: {len(all_uris)} tracks")
+        return all_uris[:50]
+
+
 async def create_spotify_playlist(
     access_token: str,
     spotify_user_id: str,
@@ -117,12 +360,10 @@ async def create_spotify_playlist(
     track_uris: list[str],
 ) -> dict:
     """
-    Creates a private playlist and adds tracks.
-    Adds a 1 second delay between creation and track addition —
-    Spotify sometimes needs time before accepting modifications.
+    Creates a private playlist and adds up to 50 tracks.
+    Uses /items endpoint — correct replacement for deprecated /tracks.
     """
     async with httpx.AsyncClient() as client:
-        # Step 1: Create a private playlist
         create_response = await client.post(
             f"{SPOTIFY_API_URL}/me/playlists",
             headers={
@@ -144,22 +385,19 @@ async def create_spotify_playlist(
         playlist = create_response.json()
         print(f"DEBUG playlist created: {playlist['id']}")
 
-        # Wait 1 second — Spotify sometimes needs time before
-        # accepting track additions to a newly created playlist
         await asyncio.sleep(1)
 
-        # Step 2: Add all tracks in one batch request
         if track_uris:
             add_response = await client.post(
-                f"{SPOTIFY_API_URL}/playlists/{playlist['id']}/tracks",
+                f"{SPOTIFY_API_URL}/playlists/{playlist['id']}/items",
                 headers={
                     "Authorization": f"Bearer {access_token}",
                     "Content-Type": "application/json",
                 },
-                json={"uris": track_uris[:10]},
+                json={"uris": track_uris[:50]},
             )
             if add_response.status_code == 201:
-                print(f"DEBUG added {len(track_uris[:10])} tracks successfully")
+                print(f"DEBUG added {len(track_uris[:50])} tracks successfully")
             else:
                 print(f"DEBUG add tracks error: {add_response.status_code} - {add_response.text}")
 
@@ -167,89 +405,3 @@ async def create_spotify_playlist(
             "spotify_playlist_id": playlist["id"],
             "spotify_playlist_url": playlist["external_urls"]["spotify"],
         }
-
-
-async def search_tracks_by_mood(access_token: str, mood: str) -> list[str]:
-    """
-    Searches Spotify for tracks matching a given mood.
-    Returns a list of track URIs (e.g. spotify:track:abc123).
-    """
-    mood_queries = {
-        # Happy / positive
-        "happy": "happy feel good upbeat pop",
-        "joyful": "joyful euphoric celebration dance",
-        "excited": "excited hype energy banger",
-        "grateful": "grateful blessed positive vibes soul",
-
-        # Sad / melancholic
-        "sad": "sad heartbreak melancholic indie",
-        "melancholic": "melancholic nostalgic rainy day piano",
-        "lonely": "lonely empty solitude ambient",
-        "heartbroken": "heartbreak breakup emotional ballad",
-
-        # Calm / peaceful
-        "calm": "calm peaceful ambient meditation",
-        "relaxed": "relaxed chill lofi jazz",
-        "sleepy": "sleep ambient drone soft piano",
-        "peaceful": "peaceful nature acoustic guitar",
-
-        # Energetic / intense
-        "energetic": "energetic workout pump up high tempo",
-        "angry": "angry aggressive metal hard rock",
-        "motivated": "motivated gym grind hip hop",
-        "powerful": "powerful epic orchestral cinematic",
-
-        # Nostalgic / retro
-        "nostalgic": "nostalgic throwback 90s classics",
-        "retro": "retro vintage 80s synthwave",
-        "sentimental": "sentimental memories slow oldies",
-
-        # Romantic / social
-        "romantic": "romantic love RnB slow jam",
-        "flirty": "flirty smooth sensual groove",
-        "heartwarming": "heartwarming wholesome acoustic folk",
-
-        # Focus / work
-        "focused": "focus deep work lofi concentration",
-        "creative": "creative flow instrumental jazz",
-        "studying": "study concentration classical piano",
-        "productive": "productive morning routine uptempo",
-
-        # Dark / introspective
-        "dark": "dark moody atmospheric alternative",
-        "anxious": "anxious tense cinematic strings",
-        "reflective": "reflective introspective indie folk",
-        "hopeful": "hopeful uplifting inspirational",
-
-        # Party / social
-        "party": "party dance club house",
-        "summer": "summer beach vibes tropical",
-        "confident": "confident swagger hip hop trap",
-
-        # Relief / freedom
-        "relieved": "relieved free uplifting celebratory indie",
-        "free": "freedom uplifting euphoric indie pop",
-    }
-
-    query = mood_queries.get(mood.lower(), mood)
-    query = query.replace(",", "").replace("-", " ").strip()
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{SPOTIFY_API_URL}/search",
-            headers={"Authorization": f"Bearer {access_token}"},
-            params={
-                "q": query,
-                "type": "track",
-                "limit": 10,
-                "market": "FR",
-            },
-        )
-
-        if response.status_code != 200:
-            print(f"DEBUG Spotify search error: {response.status_code} - {response.text}")
-            response.raise_for_status()
-
-        data = response.json()
-        tracks = data.get("tracks", {}).get("items", [])
-        return [track["uri"] for track in tracks if track.get("uri")]

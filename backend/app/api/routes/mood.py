@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -8,7 +9,11 @@ from app.models.user import User
 from app.models.mood_entry import MoodEntry
 from app.models.playlist import Playlist
 from app.schemas.mood import MoodAnalysisRequest, MoodAnalysisResponse
-from app.services.mood_service import analyze_mood, generate_playlist_name
+from app.services.mood_service import (
+    analyze_mood,
+    generate_playlist_name,
+    extract_music_preferences,
+)
 from app.services.spotify_service import (
     get_valid_access_token,
     get_spotify_user_id,
@@ -27,13 +32,27 @@ async def analyze_user_mood(
 ):
     """
     Main endpoint of MoodQueue.
-    Takes the user's text, analyzes their mood with Groq LLaMA3,
-    searches for matching tracks on Spotify, creates a playlist,
-    and saves everything to the database.
+    3-layer music matching system:
+    - Layer 1: Explicit artists mentioned → prioritized first
+    - Layer 2: Explicit genres mentioned → prioritized second
+    - Layer 3: AI mood analysis → fills the rest
+    All Groq calls run in parallel for speed.
     """
 
-    # Step 1: Analyze mood with Groq LLaMA3
-    mood_data = await analyze_mood(request.text)
+    # Step 1: Run mood analysis AND preference extraction in parallel
+    # Both use Groq but are independent — no need to wait for one before the other
+    mood_data, music_prefs = await asyncio.gather(
+        analyze_mood(request.text),
+        extract_music_preferences(request.text),
+    )
+
+    explicit_artists = music_prefs.get("artists", [])
+    explicit_genres = music_prefs.get("genres", [])
+
+    if explicit_artists:
+        print(f"DEBUG explicit artists detected: {explicit_artists}")
+    if explicit_genres:
+        print(f"DEBUG explicit genres detected: {explicit_genres}")
 
     # Step 2: Save the mood entry to the database
     mood_entry = MoodEntry(
@@ -47,34 +66,30 @@ async def analyze_user_mood(
     await db.commit()
     await db.refresh(mood_entry)
 
-    # Step 3: If user has connected Spotify, generate a playlist
+    # Step 3: Generate playlist if Spotify is connected
     playlist_generated = False
     playlist_url = None
     playlist_name = None
 
     if current_user.spotify_connected:
         try:
-            # Get a valid Spotify access token — auto-refreshes if expired
             access_token = await get_valid_access_token(current_user)
-
-            # Get the real Spotify user ID.
-            # This is different from our internal user ID —
-            # Spotify needs its own ID to create playlists on the user's account.
             spotify_user_id = await get_spotify_user_id(access_token)
 
-            # Use the mood label to look up our curated Spotify query dictionary.
-            # Groq's raw keywords contain special characters that break Spotify search.
-            keywords = mood_data["mood"]
-            track_uris = await search_tracks_by_mood(access_token, keywords)
+            # Search with all 3 layers simultaneously
+            track_uris = await search_tracks_by_mood(
+                access_token,
+                mood_data,
+                explicit_artists=explicit_artists,
+                explicit_genres=explicit_genres,
+            )
 
             if track_uris:
-                # Generate a creative playlist name with Groq
                 playlist_name = await generate_playlist_name(
                     mood=mood_data["mood"],
                     explanation=mood_data["explanation"],
                 )
 
-                # Create the actual playlist on the user's Spotify account
                 spotify_data = await create_spotify_playlist(
                     access_token=access_token,
                     spotify_user_id=spotify_user_id,
@@ -82,7 +97,6 @@ async def analyze_user_mood(
                     track_uris=track_uris,
                 )
 
-                # Save the playlist to our database
                 playlist = Playlist(
                     user_id=current_user.id,
                     mood_entry_id=mood_entry.id,
@@ -100,8 +114,6 @@ async def analyze_user_mood(
                 playlist_url = spotify_data["spotify_playlist_url"]
 
         except Exception as e:
-            # Don't crash if Spotify fails — mood analysis still works.
-            # The user gets their mood analyzed even without a playlist.
             print(f"Spotify playlist generation failed: {e}")
 
     return MoodAnalysisResponse(
