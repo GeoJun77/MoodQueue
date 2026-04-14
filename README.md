@@ -37,3 +37,49 @@ MoodQueue is a fullstack application that analyzes a user's mood through free-fo
 ---
 
 ## 📁 Project Structure
+
+moodqueue/
+├── backend/                  # FastAPI backend
+│   ├── app/
+│   │   ├── api/routes/       # auth.py, mood.py, playlist.py
+│   │   ├── core/             # config, database, security, dependencies
+│   │   ├── models/           # user.py, mood_entry.py, playlist.py
+│   │   ├── schemas/          # user.py, mood.py
+│   │   └── services/         # mood_service.py, spotify_service.py
+│   ├── alembic/              # database migrations
+│   ├── Dockerfile
+│   └── requirements.txt
+├── frontend/                 # Mobile app React Native (Expo)
+│   ├── src/
+│   │   ├── screens/          # LoginScreen, HomeScreen, HistoryScreen
+│   │   ├── services/         # api.js
+│   │   └── context/          # AuthContext.js
+│   └── App.js
+├── web/                      # Web app React (Vite)
+│   ├── src/
+│   │   ├── pages/            # LoginPage, HomePage, HistoryPage
+│   │   ├── services/         # api.js
+│   │   └── context/          # AuthContext.jsx
+│   └── App.jsx
+└── docker-compose.yml
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Docker Desktop
+- Node.js 18+
+- Spotify Developer account
+- Groq account (groq.com) — free
+- Ngrok (for local Spotify OAuth callback)
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/GeoJun77/moodqueue.git
+cd moodqueue
+
+2. Configure environment variables
+Create a backend/.env file:
