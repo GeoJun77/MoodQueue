@@ -84,7 +84,7 @@ cd moodqueue
 
 ### 2. Configure environment variables
 Create a backend/.env file:
-
+```bash
 DATABASE_URL=postgresql+asyncpg://moodqueue:moodqueue@db:5432/moodqueue
 REDIS_URL=redis://redis:6379
 SECRET_KEY=your_secret_key_here
@@ -92,7 +92,7 @@ OPENAI_API_KEY=gsk_your_groq_api_key_here
 SPOTIFY_CLIENT_ID=your_spotify_client_id
 SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
 SPOTIFY_REDIRECT_URI=https://your-ngrok-url.ngrok-free.dev/api/playlist/callback
-
+```
 ### 3. Start the backend
 ```bash
 docker-compose up -d
@@ -108,14 +108,18 @@ Copy the generated HTTPS URL and update:
 	•	Spotify Developer Dashboard → Redirect URIs
    
 ### 5. Start the web frontend
+```bash
 cd web
 npm install
 npm run dev
+```
 
 ### 6. Start the mobile frontend
+```bash
 cd frontend
 npm install
 npx expo start
+```
 
 Scan the QR code with Expo Go (available on App Store and Google Play).
 ⚠️ Update frontend/src/services/api.js with your local IP:
