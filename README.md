@@ -37,7 +37,7 @@ MoodQueue is a fullstack application that analyzes a user's mood through free-fo
 ---
 
 ## 📁 Project Structure
-
+``` bash
 moodqueue/
 ├── backend/                  # FastAPI backend
 │   ├── app/
@@ -62,7 +62,7 @@ moodqueue/
 │   │   └── context/          # AuthContext.jsx
 │   └── App.jsx
 └── docker-compose.yml
-
+```
 ---
 
 ## 🚀 Getting Started
