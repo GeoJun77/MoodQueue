@@ -1,28 +1,39 @@
-# MoodQueue 🎵
+# 🎵 MoodQueue
 
-Generate Spotify playlists from your mood
+MoodQueue is a fullstack application that analyzes a user's mood through free-form text (multilingual) and automatically generates a personalized Spotify playlist using AI.
 
-## Tech Stack
+---
 
-**Backend** — Python, FastAPI, PostgreSQL, Redis, Docker  
-**AI** — OpenAI API (sentiment analysis)  
-**Music** — Spotify Web API  
-**Mobile** — React Native (Expo) — iOS & Android  
-**Infra** — Docker Compose, GitHub Actions, Railway
+## 🧠 How it works
 
-## Architecture
+1. The user describes their mood in free-form text (French, English, Spanish, etc.)
+2. The backend analyzes the text with **Groq (LLaMA 3.1 8B Instant)** — a free alternative to OpenAI
+3. The system detects explicitly mentioned artists and genres
+4. A playlist is generated on **Spotify** using a 3-layer search system:
+   - **Layer 1**: Explicitly mentioned artists → only their tracks
+   - **Layer 2**: Explicitly mentioned genres → genre tracks + mood
+   - **Layer 3**: AI-generated mood queries → shuffled results
 
-User describes mood → NLP analysis → Spotify playlist generated → saved to history
+> ⚠️ Note: This project uses **Groq** (free) instead of OpenAI (paid). The Groq API key is stored in the `OPENAI_API_KEY` environment variable for compatibility reasons.
 
-## Getting Started
+---
 
-```bash
-git clone https://github.com/GeoJun77/moodqueue
-cd moodqueue
-cp .env.example .env
-docker-compose up --build
-```
+## 🏗️ Tech Stack
 
-## Project Status
+| Layer | Technology |
+|-------|------------|
+| Backend | Python 3.12, FastAPI, SQLAlchemy async |
+| Database | PostgreSQL 16 |
+| Cache | Redis 7 |
+| AI / LLM | Groq (LLaMA 3.1 8B Instant) |
+| Music | Spotify Web API (OAuth2) |
+| Auth | JWT (python-jose + bcrypt) |
+| Migrations | Alembic |
+| Containerization | Docker + Docker Compose |
+| Web Frontend | Vite + React |
+| Mobile Frontend | React Native (Expo SDK 51) |
+| HTTPS Tunnel | Ngrok (for Spotify OAuth callback) |
 
-🚧 In development — built step by step as a portfolio project.
+---
+
+## 📁 Project Structure
