@@ -99,6 +99,7 @@ docker-compose up -d
 ```
 
 The backend will be available at http://localhost:8000
+
 Swagger documentation at http://localhost:8000/docs
 
 ### 4. Start the Ngrok tunnel
