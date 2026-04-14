@@ -124,12 +124,13 @@ npx expo start
 ```
 
 Scan the QR code with Expo Go (available on App Store and Google Play).
+
 ⚠️ Update frontend/src/services/api.js with your local IP:
 ```bash
 const BASE_URL = 'http://YOUR_LOCAL_IP:8000';
 ```
 
-##🎯 Features
+## 🎯 Features
 
 	•	✅ JWT Authentication (register / login)
 	•	✅ Multilingual mood analysis via Groq LLaMA3
@@ -155,7 +156,8 @@ const BASE_URL = 'http://YOUR_LOCAL_IP:8000';
 | GET | /api/playlist/callback | Spotify callback |
 | GET | /api/playlist/history | Playlist history |
 
-🧩 Context Detection System
+## 🧩 Context Detection System
+
 The Groq prompt covers more than 30 specific contexts:
 
 	•	Emotions: sadness, joy, anger, nostalgia, melancholy…
@@ -168,8 +170,10 @@ The Groq prompt covers more than 30 specific contexts:
 	•	Specific genres: drill, phonk, amapiano, hyperpop, city pop…
 	•	Mental health: anxiety, meditation, burnout, grief…
 
-👤 Author
+## 👤 Author
+
 Geoffroy GANKOUE
+
 Fullstack project — Master Data Science
 
    
