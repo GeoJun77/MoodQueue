@@ -94,7 +94,9 @@ SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
 SPOTIFY_REDIRECT_URI=https://your-ngrok-url.ngrok-free.dev/api/playlist/callback
 
 ### 3. Start the backend
+```bash
 docker-compose up -d
+```
 
 The backend will be available at http://localhost:8000
 Swagger documentation at http://localhost:8000/docs
