@@ -104,6 +104,7 @@ Swagger documentation at http://localhost:8000/docs
 ### 4. Start the Ngrok tunnel
 In a separate terminal:
 Copy the generated HTTPS URL and update:
+
 	•	backend/.env → SPOTIFY_REDIRECT_URI
 	•	Spotify Developer Dashboard → Redirect URIs
    
