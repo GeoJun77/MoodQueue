@@ -174,6 +174,6 @@ The Groq prompt covers more than 30 specific contexts:
 
 Geoffroy GANKOUE
 
-Fullstack project — Master Data Science
+Fullstack project — Master Data & Artificial Intelligence
 
    
