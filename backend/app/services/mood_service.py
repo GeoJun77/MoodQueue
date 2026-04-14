@@ -258,9 +258,9 @@ async def generate_playlist_name(mood: str, explanation: str) -> str:
 Context: {explanation}
 
 Rules:
-- Maximum 6 words
+- Maximum 4 words (STRICT — never more)
 - Add one relevant emoji at the end
-- Make it feel deeply personal and evocative
+- Short, punchy, memorable
 - Match the specific context:
   * Spiritual → uplifting and divine
   * Nostalgic childhood → innocence, youth, memories
