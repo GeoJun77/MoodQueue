@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // We use the machine's local IP instead of "localhost" because
 // the phone is a separate device — it can't reach "localhost"
 // which refers to the phone itself, not our computer.
-const BASE_URL = 'http://10.188.48.199:8000';
+const BASE_URL = 'http://172.20.10.2:8000';
 
 const api = axios.create({
   baseURL: BASE_URL,

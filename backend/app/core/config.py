@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # Token lifetime: 24 hours (60 min × 24)
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
 
-    # OpenAI API key for mood analysis
+    # GROQ API key for mood analysis
     OPENAI_API_KEY: str
 
     # Spotify app credentials
@@ -33,6 +33,10 @@ class Settings(BaseSettings):
 
     # URL Spotify will redirect to after the user grants access
     SPOTIFY_REDIRECT_URI: str = "https://punk-spyglass-numeral.ngrok-free.dev/api/playlist/callback"
+
+    # forgot your password ?
+    RESEND_API_KEY: str = ""
+
 
     class Config:
         # Tells Pydantic where to look for the config file

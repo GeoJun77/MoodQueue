@@ -3,6 +3,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import HomePage from './pages/HomePage';
 import HistoryPage from './pages/HistoryPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 
 // ProtectedRoute — redirects to login if user is not authenticated
 function ProtectedRoute({ children }) {
@@ -35,6 +37,12 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={
         <PublicRoute><LoginPage /></PublicRoute>
+      } />
+      <Route path="/forgot-password" element={
+        <PublicRoute><ForgotPasswordPage /></PublicRoute>
+      } />
+      <Route path="/reset-password" element={
+        <ResetPasswordPage />
       } />
       <Route path="/" element={
         <ProtectedRoute><HomePage /></ProtectedRoute>

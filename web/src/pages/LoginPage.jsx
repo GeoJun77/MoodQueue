@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { login, register } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
   const { signIn } = useAuth();
+  const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
@@ -37,7 +39,6 @@ export default function LoginPage() {
 
   return (
     <div style={styles.container}>
-      {/* Background blobs */}
       <div style={styles.blob1} />
       <div style={styles.blob2} />
 
@@ -127,6 +128,18 @@ export default function LoginPage() {
             >
               {loading ? 'Loading...' : (isLogin ? 'Sign In →' : 'Create Account →')}
             </button>
+
+            {/* Forgot password — only shown in login mode */}
+            {isLogin && (
+              <p style={styles.forgotText}>
+                <span
+                  style={styles.forgotLink}
+                  onClick={() => navigate('/forgot-password')}
+                >
+                  Forgot your password?
+                </span>
+              </p>
+            )}
           </form>
         </div>
 
@@ -149,11 +162,8 @@ const styles = {
   container: {
     minHeight: '100vh',
     background: 'linear-gradient(135deg, #0a0a0f 0%, #0d1117 50%, #111827 100%)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-    overflow: 'hidden',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    position: 'relative', overflow: 'hidden',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
   blob1: {
@@ -236,6 +246,13 @@ const styles = {
     cursor: 'pointer', marginTop: 8,
     boxShadow: '0 8px 24px #1DB95440',
     transition: 'all 0.2s', letterSpacing: 0.2,
+  },
+  forgotText: {
+    textAlign: 'center', margin: '4px 0 0',
+  },
+  forgotLink: {
+    color: '#64748b', fontSize: 13,
+    cursor: 'pointer', textDecoration: 'underline',
   },
   footerText: { marginTop: 24, color: '#64748b', fontSize: 14 },
   footerLink: {

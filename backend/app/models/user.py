@@ -29,6 +29,13 @@ class User(Base):
     spotify_access_token: Mapped[str | None] = mapped_column(String, nullable=True)
     spotify_refresh_token: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    # Password reset token — generated when user requests a reset
+    # Stored as a UUID string, cleared after use
+    reset_token: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # Expiry date of the reset token — valid for 1 hour
+    reset_token_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
