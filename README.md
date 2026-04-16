@@ -172,6 +172,29 @@ Email — Resend
 	•	Password reset emails sent via Resend
 	•	Default sender: onboarding@resend.dev
 
+## ⚠️ Spotify API Limitation
+
+This project uses the Spotify Web API in **development mode**, which has the following restrictions since Spotify updated their policies in 2025:
+
+- Maximum **5 users** can connect their Spotify account
+- Users must be **manually added** in the Spotify Developer Dashboard
+- Extended Quota Mode is no longer available for individual developers — only for organizations
+
+### Impact for demo purposes
+
+If you want to test the full playlist generation feature, please contact me so I can add your Spotify email to the authorized users list:
+
+📧 **gankouedzongeoffroyjunior@gmail.com**
+
+### What still works without Spotify
+
+Even without connecting Spotify, you can still:
+- ✅ Create an account and log in
+- ✅ Describe your mood and see the AI analysis
+- ✅ See the detected mood, confidence score and explanation
+- ✅ View mood history
+
+The playlist generation requires a connected Spotify account.
 
 ## 🎯 Features
 	•	✅ JWT Authentication (register / login)
