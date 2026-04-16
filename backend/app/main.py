@@ -29,7 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount each router under a URL prefix.
+# Mount each router under a URL prefix
 # Example: everything in auth.py is accessible under /api/auth/...
 # Tags are used to group endpoints in the Swagger documentation.
 app.include_router(auth.router,     prefix="/api/auth",     tags=["auth"])
