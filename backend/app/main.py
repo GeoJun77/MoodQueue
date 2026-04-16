@@ -12,13 +12,18 @@ app = FastAPI(
     docs_url="/docs",
 )
 
-# CORS middleware is required when your frontend (React Native)
-# makes requests to your backend from a different origin.
-# Without this, browsers block all cross-origin requests.
-# allow_origins=["*"] allows everything in dev — restrict in prod.
+# CORS middleware is required when your frontend makes requests
+# to your backend from a different origin.
+# We explicitly list allowed origins instead of using "*"
+# because allow_credentials=True is incompatible with wildcard origins.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://mood-queue-one.vercel.app",
+        "https://mood-queue-3unktl9es-geo77.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
