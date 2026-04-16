@@ -171,7 +171,7 @@ Email — Resend
 
 	•	Password reset emails sent via Resend
 	•	Default sender: onboarding@resend.dev
-
+---
 ## ⚠️ Spotify API Limitation
 
 This project uses the Spotify Web API in **development mode**, which has the following restrictions since Spotify updated their policies in 2025:
