@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Base URL of our FastAPI backend
-const BASE_URL = 'https://moodqueue-production.up.railway.app';
+const BASE_URL = import.meta.env.VITE_API_URL || 'https://moodqueue-production.up.railway.app';
 
 const api = axios.create({
   baseURL: BASE_URL,
