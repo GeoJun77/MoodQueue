@@ -4,6 +4,13 @@ MoodQueue is a fullstack application that analyzes a user's mood through free-fo
 
 ---
 
+## 🌐 Live Demo
+
+- **Web App**: https://mood-queue-one.vercel.app
+- **API**: https://moodqueue-production.up.railway.app
+
+---
+
 ## 🧠 How it works
 
 1. The user describes their mood in free-form text (French, English, Spanish, etc.)
@@ -32,7 +39,10 @@ MoodQueue is a fullstack application that analyzes a user's mood through free-fo
 | Containerization | Docker + Docker Compose |
 | Web Frontend | Vite + React |
 | Mobile Frontend | React Native (Expo SDK 51) |
-| HTTPS Tunnel | Ngrok (for Spotify OAuth callback) |
+| HTTPS Tunnel | Ngrok (for local Spotify OAuth callback) |
+| Backend Hosting | Railway |
+| Frontend Hosting | Vercel |
+| Email Service | Resend |
 
 ---
 
@@ -45,9 +55,10 @@ moodqueue/
 │   │   ├── core/             # config, database, security, dependencies
 │   │   ├── models/           # user.py, mood_entry.py, playlist.py
 │   │   ├── schemas/          # user.py, mood.py
-│   │   └── services/         # mood_service.py, spotify_service.py
+│   │   └── services/         # mood_service.py, spotify_service.py, email_service.py
 │   ├── alembic/              # database migrations
 │   ├── Dockerfile
+│   ├── Procfile              # Railway start command
 │   └── requirements.txt
 ├── frontend/                 # Mobile app React Native (Expo)
 │   ├── src/
@@ -57,7 +68,7 @@ moodqueue/
 │   └── App.js
 ├── web/                      # Web app React (Vite)
 │   ├── src/
-│   │   ├── pages/            # LoginPage, HomePage, HistoryPage
+│   │   ├── pages/            # LoginPage, HomePage, HistoryPage, ForgotPasswordPage, ResetPasswordPage
 │   │   ├── services/         # api.js
 │   │   └── context/          # AuthContext.jsx
 │   └── App.jsx
@@ -65,7 +76,7 @@ moodqueue/
 ```
 ---
 
-## 🚀 Getting Started
+## 🚀 Getting Started (Local Development)
 
 ### Prerequisites
 
@@ -73,6 +84,7 @@ moodqueue/
 - Node.js 18+
 - Spotify Developer account
 - Groq account (groq.com) — free
+- Resend account (resend.com) — free
 - Ngrok (for local Spotify OAuth callback)
 
 ### 1. Clone the repository
@@ -92,6 +104,7 @@ OPENAI_API_KEY=gsk_your_groq_api_key_here
 SPOTIFY_CLIENT_ID=your_spotify_client_id
 SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
 SPOTIFY_REDIRECT_URI=https://your-ngrok-url.ngrok-free.dev/api/playlist/callback
+RESEND_API_KEY=your_resend_api_key
 ```
 ### 3. Start the backend
 ```bash
@@ -102,37 +115,67 @@ The backend will be available at http://localhost:8000
 
 Swagger documentation at http://localhost:8000/docs
 
-### 4. Start the Ngrok tunnel
-In a separate terminal:
+### 4. Run database migrations
+```bash
+docker-compose exec backend alembic upgrade head
+```
+
+### 5. Start the Ngrok tunnel 
+In a separate terminal: 
+```bash
+ngrok http 8000
+```
 Copy the generated HTTPS URL and update:
 
 	•	backend/.env → SPOTIFY_REDIRECT_URI
 	•	Spotify Developer Dashboard → Redirect URIs
-   
-### 5. Start the web frontend
+	
+### 6. Start the web frontend
 ```bash
 cd web
 npm install
 npm run dev
 ```
+The web app will be available at http://localhost:5173
 
-### 6. Start the mobile frontend
+### 7. Start the mobile frontend
 ```bash
 cd frontend
 npm install
-npx expo start
+npm expo start
 ```
 
 Scan the QR code with Expo Go (available on App Store and Google Play).
 
 ⚠️ Update frontend/src/services/api.js with your local IP:
+
 ```bash
 const BASE_URL = 'http://YOUR_LOCAL_IP:8000';
 ```
 
-## 🎯 Features
+## ☁️ Production Deployment
+Backend — Railway
 
+	•	PostgreSQL and Redis hosted on Railway
+	•	Auto-deploy on every git push to main
+	•	Pre-deploy command: alembic upgrade head
+	•	Environment variables configured in Railway dashboard
+	
+Frontend — Vercel
+
+	•	Auto-deploy on every git push to main
+	•	Environment variable: VITE_API_URL=https://moodqueue-production.up.railway.app
+	•	Live URL: https://mood-queue-one.vercel.app
+	
+Email — Resend
+
+	•	Password reset emails sent via Resend
+	•	Default sender: onboarding@resend.dev
+
+
+## 🎯 Features
 	•	✅ JWT Authentication (register / login)
+	•	✅ Forgot password / Reset password via email (Resend)
 	•	✅ Multilingual mood analysis via Groq LLaMA3
 	•	✅ Explicit artist and genre detection from text
 	•	✅ Automatic Spotify playlist generation
@@ -142,6 +185,7 @@ const BASE_URL = 'http://YOUR_LOCAL_IP:8000';
 	•	✅ Automatic light / dark mode
 	•	✅ Responsive web interface (Vite + React)
 	•	✅ iOS and Android mobile app (Expo)
+	•	✅ Deployed on Railway (backend) + Vercel (frontend)
 
 ## 🔌 Main API Endpoints
 
@@ -150,6 +194,8 @@ const BASE_URL = 'http://YOUR_LOCAL_IP:8000';
 | POST | /api/auth/register | Create an account |
 | POST | /api/auth/login | Log in |
 | GET | /api/auth/me | User profile |
+| POST | /api/auth/forgot-password | Send password reset email |
+| POST | /api/auth/reset-password | Reset password with token |
 | POST | /api/mood/analyze | Analyze mood + generate playlist |
 | GET | /api/mood/history | Mood history |
 | GET | /api/playlist/connect | Spotify OAuth URL |
@@ -175,5 +221,3 @@ The Groq prompt covers more than 30 specific contexts:
 Geoffroy GANKOUE
 
 Fullstack project — Master Data & Artificial Intelligence
-
-   
