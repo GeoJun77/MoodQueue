@@ -54,3 +54,5 @@ psycopg2-binary==2.9.9
 # Groq SDK — free alternative to OpenAI, same API format
 # Used for mood analysis via LLaMA3 model
 groq==0.8.0
+
+resend 
