@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { login, register } from '../services/api';
+import { login, register, getErrorMessage } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
@@ -20,6 +20,10 @@ export default function LoginPage() {
       setError('Please fill in all fields');
       return;
     }
+    if (!isLogin && password.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -31,7 +35,7 @@ export default function LoginPage() {
       }
       await signIn(response.data.access_token);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Something went wrong');
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -56,13 +60,15 @@ export default function LoginPage() {
           <div style={styles.tabSwitcher}>
             <button
               style={{ ...styles.tab, ...(isLogin ? styles.tabActive : {}) }}
-              onClick={() => setIsLogin(true)}
+              type="button"
+              onClick={() => { setIsLogin(true); setError(''); }}
             >
               Sign In
             </button>
             <button
               style={{ ...styles.tab, ...(!isLogin ? styles.tabActive : {}) }}
-              onClick={() => setIsLogin(false)}
+              type="button"
+              onClick={() => { setIsLogin(false); setError(''); }}
             >
               Sign Up
             </button>
@@ -106,7 +112,7 @@ export default function LoginPage() {
                 placeholder="Password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                autoComplete="current-password"
+                autoComplete={isLogin ? 'current-password' : 'new-password'}
               />
               <button
                 type="button"
@@ -148,7 +154,7 @@ export default function LoginPage() {
           {isLogin ? "New to MoodQueue? " : "Already have an account? "}
           <span
             style={styles.footerLink}
-            onClick={() => setIsLogin(!isLogin)}
+            onClick={() => { setIsLogin(!isLogin); setError(''); }}
           >
             {isLogin ? 'Sign up free' : 'Sign in'}
           </span>

@@ -1,52 +1,62 @@
 import sys
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from alembic import context
 
-# Add /app to the Python path so our imports work inside the container
-sys.path.insert(0, '/app')
+# Make "import app" work whatever the current directory is
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings
 from app.core.database import Base
 
-# Import all models so Alembic detects them and includes their tables
-# in the generated migration — never remove these imports
+# Import all models so Alembic sees their tables — never remove
 from app.models import User, MoodEntry, Playlist  # noqa: F401
 
 config = context.config
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# When the app runs migrations at startup it keeps its own logging setup
+if config.config_file_name is not None and not config.attributes.get("skip_logging"):
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
-def get_url():
-    # asyncpg is for async runtime usage — Alembic runs synchronously,
-    # so we swap the driver to the standard psycopg2-compatible one
-    return settings.DATABASE_URL.replace("postgresql+asyncpg", "postgresql")
+
+def get_url() -> str:
+    # Alembic runs synchronously: swap async drivers for sync ones
+    url = settings.DATABASE_URL
+    url = url.replace("postgresql+asyncpg", "postgresql")
+    url = url.replace("sqlite+aiosqlite", "sqlite")
+    return url
+
 
 def run_migrations_offline() -> None:
-    # "Offline" mode generates SQL scripts without connecting to the DB
     url = get_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        render_as_batch=url.startswith("sqlite"),
     )
     with context.begin_transaction():
         context.run_migrations()
 
+
 def run_migrations_online() -> None:
-    # "Online" mode connects directly to the DB and applies migrations
-    connectable = create_engine(get_url())
+    url = get_url()
+    connectable = create_engine(url)
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            # SQLite can't ALTER most things; batch mode recreates tables
+            render_as_batch=url.startswith("sqlite"),
         )
         with context.begin_transaction():
             context.run_migrations()
+    connectable.dispose()
+
 
 if context.is_offline_mode():
     run_migrations_offline()

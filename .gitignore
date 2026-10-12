@@ -222,3 +222,7 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+# MoodQueue runtime data
+backend/data/
+backend/static/
+archive/

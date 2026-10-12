@@ -1,12 +1,114 @@
-from groq import AsyncGroq
-from app.core.config import settings
-import json
+"""
+Mood analysis.
 
-client = AsyncGroq(api_key=settings.OPENAI_API_KEY)
-GROQ_MODEL = "llama-3.1-8b-instant"
+Uses Groq (LLaMA) when GROQ_API_KEY is set, and automatically falls back
+to the offline engine (app/services/local_mood.py) when no key is set,
+when the API is down, slow, or returns garbage. The app never breaks
+because an external AI service changed or disappeared.
+"""
+import asyncio
+import json
+import logging
+import re
+
+from app.core.config import settings
+from app.services.catalog import MOODS
+from app.services.local_mood import (
+    analyze_mood_local,
+    extract_preferences_local,
+    playlist_name_local,
+)
+
+log = logging.getLogger("moodqueue.mood")
+
+_client = None
+
+
+def _get_client():
+    """Groq client created lazily, only if a key exists and the SDK imports."""
+    global _client
+    if _client is None:
+        from groq import AsyncGroq  # optional dependency
+        _client = AsyncGroq(api_key=settings.GROQ_API_KEY, timeout=settings.AI_TIMEOUT_SECONDS)
+    return _client
+
+
+def _parse_json(raw: str) -> dict:
+    """LLMs sometimes wrap JSON in ```json fences or add text around it."""
+    raw = raw.strip()
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    return json.loads(match.group(0) if match else raw)
+
+
+async def _chat(messages: list[dict], temperature: float, max_tokens: int) -> str:
+    response = await asyncio.wait_for(
+        _get_client().chat.completions.create(
+            model=settings.GROQ_MODEL,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ),
+        timeout=settings.AI_TIMEOUT_SECONDS,
+    )
+    return response.choices[0].message.content.strip()
 
 
 async def analyze_mood(text: str) -> dict:
+    """Mood + context analysis. Never raises: falls back to the local engine."""
+    if settings.ai_enabled:
+        try:
+            result = await _analyze_mood_ai(text)
+            result["mood"] = _to_known_mood(result, text)
+            result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.7))))
+            result.setdefault("explanation", "")
+            result.setdefault("genres", [])
+            result.setdefault("search_queries", [])
+            result["source"] = "ai"
+            return result
+        except Exception as e:  # network error, quota, model removed, bad JSON...
+            log.warning("AI mood analysis failed, using local engine: %s", e)
+    return analyze_mood_local(text)
+
+
+def _to_known_mood(result: dict, text: str) -> str:
+    mood = str(result.get("mood", "")).strip().lower()
+    if mood in MOODS:
+        return mood
+    # Unknown label from the LLM: classify its own words locally
+    guess = analyze_mood_local(f"{mood} {result.get('explanation', '')}")
+    if guess["confidence"] > 0.35:
+        return guess["mood"]
+    return analyze_mood_local(text)["mood"]
+
+
+async def extract_music_preferences(text: str) -> dict:
+    """Explicitly mentioned artists/genres. Never raises."""
+    local = extract_preferences_local(text)
+    if settings.ai_enabled:
+        try:
+            ai = await _extract_music_preferences_ai(text)
+            return {
+                "artists": list(dict.fromkeys([*ai["artists"], *local["artists"]])),
+                "genres": list(dict.fromkeys([*ai["genres"], *local["genres"]])),
+            }
+        except Exception as e:
+            log.warning("AI preference extraction failed: %s", e)
+    return local
+
+
+async def generate_playlist_name(mood: str, explanation: str) -> str:
+    """Creative playlist name. Never raises."""
+    if settings.ai_enabled:
+        try:
+            name = (await _generate_playlist_name_ai(mood, explanation)).strip().strip('"')
+            if 0 < len(name) <= 60:
+                return name
+        except Exception as e:
+            log.warning("AI playlist name failed: %s", e)
+    return playlist_name_local(mood)
+
+
+async def _analyze_mood_ai(text: str) -> dict:
     """
     Analyzes BOTH the emotional state AND the thematic context of the user's text.
     Covers 30+ specific contexts for ultra-precise music recommendations.
@@ -168,42 +270,28 @@ FILMS / SERIES / GAMING:
 
 === OUTPUT FORMAT ===
 {
-    "mood": "one precise word capturing both emotion and context in english",
+    "mood": "exactly one of: MOOD_LIST",
     "confidence": float between 0.0 and 1.0,
-    "explanation": "one sentence explaining BOTH the emotion AND the specific context detected",
+    "explanation": "one sentence, written in the SAME language as the user text, explaining BOTH the emotion AND the specific context detected",
     "genres": ["6-8 specific music genres matching BOTH mood and context"],
     "search_queries": ["6-8 CONCRETE and SPECIFIC Spotify search queries. Mix languages. Reference real artists, decades, cultural references. NEVER use abstract mood words alone."]
 }"""
 
     user_prompt = f"Deeply analyze the mood AND context of this text, then generate perfect music: \"{text}\""
 
-    response = await client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
+    system_prompt = system_prompt.replace("MOOD_LIST", ", ".join(MOODS))
+    raw_content = await _chat(
+        [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.3,
         max_tokens=800,
     )
-
-    raw_content = response.choices[0].message.content.strip()
-
-    try:
-        result = json.loads(raw_content)
-    except json.JSONDecodeError:
-        result = {
-            "mood": "neutral",
-            "confidence": 0.5,
-            "explanation": "Could not analyze mood precisely",
-            "genres": ["pop", "indie", "electronic"],
-            "search_queries": [text[:50]],
-        }
-
-    return result
+    return _parse_json(raw_content)  # bad JSON -> exception -> local fallback
 
 
-async def extract_music_preferences(text: str) -> dict:
+async def _extract_music_preferences_ai(text: str) -> dict:
     """
     Extracts explicit music preferences from the user's text.
     Detects artist names and genres explicitly mentioned.
@@ -232,25 +320,15 @@ Return this exact format:
 
 Respond with just the JSON object, nothing else."""
 
-    response = await client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1,
-        max_tokens=150,
-    )
-
-    raw = response.choices[0].message.content.strip()
-    try:
-        result = json.loads(raw)
-        return {
-            "artists": result.get("artists", []),
-            "genres": result.get("genres", []),
-        }
-    except json.JSONDecodeError:
-        return {"artists": [], "genres": []}
+    raw = await _chat([{"role": "user", "content": prompt}], temperature=0.1, max_tokens=150)
+    result = _parse_json(raw)
+    return {
+        "artists": [str(a) for a in result.get("artists", []) if a][:8],
+        "genres": [str(g) for g in result.get("genres", []) if g][:8],
+    }
 
 
-async def generate_playlist_name(mood: str, explanation: str) -> str:
+async def _generate_playlist_name_ai(mood: str, explanation: str) -> str:
     """
     Generates a creative context-aware playlist name.
     """
@@ -274,11 +352,4 @@ Rules:
 
 Respond with just the playlist name, nothing else."""
 
-    response = await client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.8,
-        max_tokens=50,
-    )
-
-    return response.choices[0].message.content.strip()
+    return await _chat([{"role": "user", "content": prompt}], temperature=0.8, max_tokens=50)

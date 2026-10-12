@@ -5,6 +5,7 @@ import HomePage from './pages/HomePage';
 import HistoryPage from './pages/HistoryPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import AccountPage from './pages/AccountPage';
 
 // ProtectedRoute — redirects to login if user is not authenticated
 function ProtectedRoute({ children }) {
@@ -22,14 +23,14 @@ function ProtectedRoute({ children }) {
     );
   }
 
-  return user ? children : <Navigate to="/login" />;
+  return user ? children : <Navigate to="/login" replace />;
 }
 
 // PublicRoute — redirects to home if user is already logged in
 function PublicRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return null;
-  return user ? <Navigate to="/" /> : children;
+  return user ? <Navigate to="/" replace /> : children;
 }
 
 function AppRoutes() {
@@ -49,6 +50,9 @@ function AppRoutes() {
       } />
       <Route path="/history" element={
         <ProtectedRoute><HistoryPage /></ProtectedRoute>
+      } />
+      <Route path="/account" element={
+        <ProtectedRoute><AccountPage /></ProtectedRoute>
       } />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>

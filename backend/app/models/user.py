@@ -1,3 +1,4 @@
+from app.core.time import utcnow
 import uuid
 from datetime import datetime
 from sqlalchemy import String, Boolean, DateTime
@@ -37,7 +38,7 @@ class User(Base):
     reset_token_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     # SQLAlchemy relationships — lets you write user.mood_entries in Python
     # instead of writing a JOIN query in SQL

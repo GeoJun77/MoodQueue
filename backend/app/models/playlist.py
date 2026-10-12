@@ -1,3 +1,4 @@
+from app.core.time import utcnow
 import uuid
 from datetime import datetime
 from sqlalchemy import String, DateTime, ForeignKey, JSON, Integer
@@ -36,8 +37,14 @@ class Playlist(Base):
     # e.g. ["spotify:track:abc123", "spotify:track:def456"]
     track_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
+    # Full track list: [{"title", "artist", "uri", "spotify_url", "youtube_url", "deezer_url"}]
+    tracks: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    # "spotify" (real Spotify playlist) or "catalog" (built-in offline catalog)
+    source: Mapped[str | None] = mapped_column(String, nullable=True)
+
     track_count: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     user: Mapped["User"] = relationship("User", back_populates="playlists")
     mood_entry: Mapped["MoodEntry | None"] = relationship(

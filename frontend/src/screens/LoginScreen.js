@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { login, register } from '../services/api';
+import { login, register, getErrorMessage } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 const { height } = Dimensions.get('window');
@@ -52,7 +52,7 @@ export default function LoginScreen() {
       // Save token — triggers automatic navigation to HomeScreen
       await signIn(response.data.access_token);
     } catch (error) {
-      const message = error.response?.data?.detail || 'Something went wrong';
+      const message = getErrorMessage(error);
       Alert.alert('Error', message);
     } finally {
       setLoading(false);

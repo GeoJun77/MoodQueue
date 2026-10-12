@@ -1,3 +1,4 @@
+from app.core.time import utcnow
 import uuid
 from datetime import datetime
 from sqlalchemy import String, Float, DateTime, ForeignKey, JSON
@@ -33,7 +34,7 @@ class MoodEntry(Base):
     # and adding features later without changing the schema
     raw_ai_response: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     # back_populates tells SQLAlchemy both sides of the relationship
     user: Mapped["User"] = relationship("User", back_populates="mood_entries")

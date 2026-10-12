@@ -1,47 +1,113 @@
-from pydantic_settings import BaseSettings
+import secrets
+from pathlib import Path
 
-# BaseSettings automatically reads variables from your .env file
-# and validates them at startup. If a required variable is missing,
-# the app refuses to start — prevents running a misconfigured server.
+from pydantic import field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# backend/ folder (this file is backend/app/core/config.py)
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+
 class Settings(BaseSettings):
+    """
+    Every setting has a working default, so MoodQueue starts with ZERO
+    configuration: SQLite database, local mood engine, built-in music
+    catalog. External services (Groq, Spotify, Resend, Postgres) are
+    optional upgrades enabled by setting their environment variables.
+    """
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     APP_NAME: str = "MoodQueue"
     DEBUG: bool = False
 
-    # Full connection URL to PostgreSQL.
-    # Format: driver://user:password@host:port/database_name
-    DATABASE_URL: str
+    # Where local data lives (SQLite file, generated secret key)
+    DATA_DIR: Path = BACKEND_DIR / "data"
 
-    # Redis connection URL (used for cache and sessions)
-    REDIS_URL: str = "redis://redis:6379"
+    # Database — SQLite by default, PostgreSQL if a URL is given
+    DATABASE_URL: str = ""
 
-    # Secret key used to sign JWT tokens.
-    # Must be long and random — never share or commit this.
-    SECRET_KEY: str
-
-    # Algorithm used to encode JWT tokens
+    # JWT signing key. Leave empty to auto-generate one stored in DATA_DIR.
+    SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
-    # Token lifetime: 24 hours (60 min × 24)
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    # Groq (LLM) — optional. GROQ_API_KEY preferred, OPENAI_API_KEY kept
+    # for backward compatibility with the original deployment.
+    GROQ_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.1-8b-instant"
+    AI_TIMEOUT_SECONDS: float = 15.0
 
-    # GROQ API key for mood analysis
-    OPENAI_API_KEY: str
+    # Spotify — optional
+    SPOTIFY_CLIENT_ID: str = ""
+    SPOTIFY_CLIENT_SECRET: str = ""
+    SPOTIFY_REDIRECT_URI: str = "http://127.0.0.1:8000/api/playlist/callback"
 
-    # Spotify app credentials
-    SPOTIFY_CLIENT_ID: str
-    SPOTIFY_CLIENT_SECRET: str
-
-    # URL Spotify will redirect to after the user grants access
-    SPOTIFY_REDIRECT_URI: str = "https://punk-spyglass-numeral.ngrok-free.dev/api/playlist/callback"
-
-    # forgot your password ?
+    # Email (password reset) via Resend — optional
     RESEND_API_KEY: str = ""
+    EMAIL_FROM: str = "MoodQueue <onboarding@resend.dev>"
+
+    # Public URL of the web app (used in reset emails and after Spotify login).
+    # Empty = same origin as the API (when the backend serves the web app).
+    FRONTEND_URL: str = ""
+
+    # Extra allowed CORS origins, comma-separated
+    FRONTEND_ORIGINS: str = ""
+
+    # Folder containing the built web app (web/dist). Served if it exists.
+    STATIC_DIR: Path = BACKEND_DIR / "static"
+
+    # Kept so old .env files with REDIS_URL don't break anything (unused)
+    REDIS_URL: str = ""
+
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def use_async_driver(cls, v: str) -> str:
+        # Railway/Render/Heroku give "postgres://" or "postgresql://" URLs,
+        # but SQLAlchemy async needs the asyncpg driver explicitly.
+        v = v.strip()
+        if v.startswith("postgres://"):
+            v = "postgresql://" + v[len("postgres://"):]
+        if v.startswith("postgresql://"):
+            v = "postgresql+asyncpg://" + v[len("postgresql://"):]
+        if v.startswith("sqlite:///"):
+            v = "sqlite+aiosqlite:///" + v[len("sqlite:///"):]
+        return v
+
+    @model_validator(mode="after")
+    def fill_defaults(self):
+        self.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if not self.DATABASE_URL:
+            self.DATABASE_URL = f"sqlite+aiosqlite:///{(self.DATA_DIR / 'moodqueue.db').as_posix()}"
+        if not self.SECRET_KEY:
+            key_file = self.DATA_DIR / ".secret_key"
+            if key_file.exists():
+                self.SECRET_KEY = key_file.read_text().strip()
+            else:
+                self.SECRET_KEY = secrets.token_urlsafe(48)
+                key_file.write_text(self.SECRET_KEY)
+        if not self.GROQ_API_KEY and self.OPENAI_API_KEY.startswith("gsk_"):
+            self.GROQ_API_KEY = self.OPENAI_API_KEY
+        self.FRONTEND_URL = self.FRONTEND_URL.rstrip("/")
+        return self
+
+    # ---- feature flags -------------------------------------------------
+    @property
+    def ai_enabled(self) -> bool:
+        return bool(self.GROQ_API_KEY)
+
+    @property
+    def spotify_enabled(self) -> bool:
+        return bool(self.SPOTIFY_CLIENT_ID and self.SPOTIFY_CLIENT_SECRET)
+
+    @property
+    def email_enabled(self) -> bool:
+        return bool(self.RESEND_API_KEY)
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.DATABASE_URL.startswith("sqlite")
 
 
-    class Config:
-        # Tells Pydantic where to look for the config file
-        env_file = ".env"
-
-# Single instance imported everywhere in the app.
-# This is the "singleton" pattern — one source of truth.
 settings = Settings()

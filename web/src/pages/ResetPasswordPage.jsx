@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import api from '../services/api';
+import { getErrorMessage, resetPassword } from '../services/api';
 
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
@@ -24,8 +24,8 @@ export default function ResetPasswordPage() {
       setError('Passwords do not match');
       return;
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
     if (!token) {
@@ -36,12 +36,10 @@ export default function ResetPasswordPage() {
     setLoading(true);
     setError('');
     try {
-      await api.post(
-        `/api/auth/reset-password?token=${encodeURIComponent(token)}&new_password=${encodeURIComponent(password)}`
-      );
+      await resetPassword(token, password);
       setSuccess(true);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Invalid or expired reset link');
+      setError(getErrorMessage(err, 'Invalid or expired reset link'));
     } finally {
       setLoading(false);
     }

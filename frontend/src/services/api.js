@@ -1,11 +1,10 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// The base URL of our FastAPI backend.
-// We use the machine's local IP instead of "localhost" because
-// the phone is a separate device — it can't reach "localhost"
-// which refers to the phone itself, not our computer.
-const BASE_URL = 'http://172.20.10.2:8000';
+// Backend URL. Set it in frontend/.env:
+//   EXPO_PUBLIC_API_URL=http://192.168.1.20:8000   (your computer's local IP)
+// A phone can't use "localhost": that would be the phone itself.
+const BASE_URL = (process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.20:8000').replace(/\/$/, '');
 
 const api = axios.create({
   baseURL: BASE_URL,
@@ -22,6 +21,17 @@ api.interceptors.request.use(async (config) => {
   }
   return config;
 });
+
+// Same helper as the web app: readable message for any API error
+export const getErrorMessage = (err, fallback = 'Something went wrong') => {
+  if (!err?.response) return 'Cannot reach the server. Please try again in a moment.';
+  const detail = err.response.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail) && detail.length) {
+    return detail.map((d) => (d.msg || '').replace(/^Value error, /, '')).filter(Boolean).join('\n') || fallback;
+  }
+  return fallback;
+};
 
 export const register = (email, username, password) =>
   api.post('/api/auth/register', { email, username, password });

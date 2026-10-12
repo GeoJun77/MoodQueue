@@ -1,42 +1,39 @@
+# Start everything:   docker compose up -d   ->  http://localhost:8000
+#
+# Works with no configuration at all (SQLite + offline mood engine +
+# built-in music catalog). To enable Groq / Spotify / emails, copy
+# .env.example to .env and fill in what you want.
 services:
-  # Your FastAPI backend
-  backend:
-    build: ./backend          # Docker reads the Dockerfile in this folder
+  moodqueue:
+    build: .
+    image: moodqueue:latest
     ports:
-      - "8000:8000"           # local_port:container_port — access via localhost:8000
-    volumes:
-      - ./backend:/app        # Syncs your local code into the container in real time
+      - "8000:8000"
     env_file:
-      - ./backend/.env        # Injects all environment variables from your .env file
-    depends_on:
-      db:
-        condition: service_healthy  # Backend waits for Postgres to be ready before starting
-      redis:
-        condition: service_started
+      - path: .env
+        required: false
+    volumes:
+      - moodqueue-data:/app/data   # database + secret key survive restarts
+    restart: unless-stopped
 
-  # PostgreSQL database
+  # Optional PostgreSQL instead of SQLite:
+  #   docker compose --profile postgres up -d
+  # and set in .env:
+  #   DATABASE_URL=postgresql://moodqueue:moodqueue@db:5432/moodqueue
   db:
-    image: postgres:16-alpine       # Official PostgreSQL image, alpine variant (lightweight)
+    profiles: ["postgres"]
+    image: postgres:16.4-alpine
     environment:
       POSTGRES_USER: moodqueue
       POSTGRES_PASSWORD: moodqueue
       POSTGRES_DB: moodqueue
-    ports:
-      - "5432:5432"                 # Expose port so you can connect with DBeaver or pgAdmin
     volumes:
-      - postgres_data:/var/lib/postgresql/data  # Data persists even if the container is removed
-    healthcheck:                    # Docker checks Postgres is responding before starting backend
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
       test: ["CMD-SHELL", "pg_isready -U moodqueue"]
       interval: 5s
-      timeout: 5s
-      retries: 5
+      retries: 10
 
-  # Redis cache
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-
-# Named volumes persist on your machine even if containers are deleted
 volumes:
-  postgres_data:
+  moodqueue-data:
+  postgres-data:

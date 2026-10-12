@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { analyzeMood, connectSpotify } from '../services/api';
+import { analyzeMood, connectSpotify, getErrorMessage } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 const { width } = Dimensions.get('window');
@@ -71,7 +71,7 @@ export default function HomeScreen({ navigation }) {
         Animated.spring(resultSlide, { toValue: 0, useNativeDriver: true, tension: 50, friction: 8 }),
       ]).start();
     } catch (error) {
-      Alert.alert('Error', 'Could not analyze your mood. Try again.');
+      Alert.alert('Error', getErrorMessage(error, 'Could not analyze your mood. Try again.'));
     } finally {
       setLoading(false);
     }
@@ -82,7 +82,7 @@ export default function HomeScreen({ navigation }) {
       const response = await connectSpotify();
       await Linking.openURL(response.data.auth_url);
     } catch (error) {
-      Alert.alert('Error', 'Could not connect to Spotify');
+      Alert.alert('Spotify', getErrorMessage(error, 'Could not connect to Spotify'));
     }
   };
 
@@ -280,6 +280,7 @@ export default function HomeScreen({ navigation }) {
                         </Text>
                       </View>
                     </View>
+                    {result.playlist_url ? (
                     <TouchableOpacity
                       style={styles.openSpotifyButton}
                       onPress={() => Linking.openURL(result.playlist_url)}
@@ -293,6 +294,24 @@ export default function HomeScreen({ navigation }) {
                         <Text style={styles.openSpotifyText}>Open in Spotify</Text>
                       </LinearGradient>
                     </TouchableOpacity>
+                    ) : null}
+
+                    {/* Track list — works without Spotify (built-in catalog) */}
+                    {(result.tracks || []).map((t, i) => (
+                      <TouchableOpacity
+                        key={`${t.title}-${i}`}
+                        style={styles.trackRow}
+                        onPress={() => Linking.openURL(t.spotify_url || t.youtube_url)}
+                        onLongPress={() => t.youtube_url && Linking.openURL(t.youtube_url)}
+                      >
+                        <Text style={[styles.trackNum, { color: theme.textMuted }]}>{i + 1}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.trackTitle, { color: theme.text }]} numberOfLines={1}>{t.title}</Text>
+                          <Text style={[styles.trackArtist, { color: theme.textMuted }]} numberOfLines={1}>{t.artist}</Text>
+                        </View>
+                        <Ionicons name="play-circle-outline" size={22} color="#1DB954" />
+                      </TouchableOpacity>
+                    ))}
                   </View>
                 ) : (
                   <View style={[styles.noPlaylist, {
@@ -402,6 +421,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, paddingBottom: 16,
   },
   explanation: { flex: 1, fontSize: 13, lineHeight: 18, fontStyle: 'italic' },
+  trackRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  trackNum: { width: 20, textAlign: 'right', fontSize: 12 },
+  trackTitle: { fontSize: 14, fontWeight: '600' },
+  trackArtist: { fontSize: 12, marginTop: 1 },
   playlistSection: {
     borderTopWidth: 1, padding: 20, gap: 14,
   },

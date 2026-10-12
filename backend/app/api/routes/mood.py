@@ -1,27 +1,42 @@
 import asyncio
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.models.user import User
 from app.models.mood_entry import MoodEntry
 from app.models.playlist import Playlist
+from app.models.user import User
 from app.schemas.mood import MoodAnalysisRequest, MoodAnalysisResponse
+from app.services.catalog import MOOD_EMOJI
 from app.services.mood_service import (
     analyze_mood,
-    generate_playlist_name,
     extract_music_preferences,
+    generate_playlist_name,
 )
-from app.services.spotify_service import (
-    get_valid_access_token,
-    get_spotify_user_id,
-    search_tracks_by_mood,
-    create_spotify_playlist,
-)
+from app.services.music_service import build_playlist
 
 router = APIRouter()
+log = logging.getLogger("moodqueue.api")
+
+
+def _serialize_playlist(p: Playlist | None) -> dict | None:
+    if p is None:
+        return None
+    return {
+        "id": p.id,
+        "name": p.name,
+        "mood_label": p.mood_label,
+        "source": p.source or ("spotify" if p.spotify_playlist_url else "catalog"),
+        "spotify_playlist_url": p.spotify_playlist_url,
+        "track_count": p.track_count,
+        "tracks": p.tracks or [],
+        "created_at": p.created_at,
+    }
 
 
 @router.post("/analyze", response_model=MoodAnalysisResponse)
@@ -31,117 +46,106 @@ async def analyze_user_mood(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Main endpoint of MoodQueue.
-    3-layer music matching system:
-    - Layer 1: Explicit artists mentioned → prioritized first
-    - Layer 2: Explicit genres mentioned → prioritized second
-    - Layer 3: AI mood analysis → fills the rest
-    All Groq calls run in parallel for speed.
+    Main endpoint: text -> mood -> playlist.
+    Always returns a playlist: a real Spotify one if the account is
+    connected, otherwise one built from the offline catalog.
     """
-
-    # Step 1: Run mood analysis AND preference extraction in parallel
-    # Both use Groq but are independent — no need to wait for one before the other
-    mood_data, music_prefs = await asyncio.gather(
+    mood_data, prefs = await asyncio.gather(
         analyze_mood(request.text),
         extract_music_preferences(request.text),
     )
 
-    explicit_artists = music_prefs.get("artists", [])
-    explicit_genres = music_prefs.get("genres", [])
-
-    if explicit_artists:
-        print(f"DEBUG explicit artists detected: {explicit_artists}")
-    if explicit_genres:
-        print(f"DEBUG explicit genres detected: {explicit_genres}")
-
-    # Step 2: Save the mood entry to the database
     mood_entry = MoodEntry(
         user_id=current_user.id,
         raw_text=request.text,
         detected_mood=mood_data["mood"],
         confidence_score=mood_data["confidence"],
-        raw_ai_response=mood_data,
+        raw_ai_response={**mood_data, "preferences": prefs},
     )
     db.add(mood_entry)
-    await db.commit()
+    await db.flush()
+
+    name = await generate_playlist_name(mood_data["mood"], mood_data.get("explanation", ""))
+    result = await build_playlist(current_user, mood_data, prefs, name)
+
+    playlist = Playlist(
+        user_id=current_user.id,
+        mood_entry_id=mood_entry.id,
+        mood_label=mood_data["mood"],
+        name=name,
+        spotify_playlist_id=result["spotify_playlist_id"],
+        spotify_playlist_url=result["spotify_playlist_url"],
+        track_ids=[t["uri"] for t in result["tracks"] if t.get("uri")],
+        tracks=result["tracks"],
+        source=result["source"],
+        track_count=len(result["tracks"]),
+    )
+    db.add(playlist)
+    await db.commit()  # also saves refreshed Spotify tokens on current_user
     await db.refresh(mood_entry)
-
-    # Step 3: Generate playlist if Spotify is connected
-    playlist_generated = False
-    playlist_url = None
-    playlist_name = None
-
-    if current_user.spotify_connected:
-        try:
-            access_token = await get_valid_access_token(current_user)
-            spotify_user_id = await get_spotify_user_id(access_token)
-
-            # Search with all 3 layers simultaneously
-            track_uris = await search_tracks_by_mood(
-                access_token,
-                mood_data,
-                explicit_artists=explicit_artists,
-                explicit_genres=explicit_genres,
-            )
-
-            if track_uris:
-                playlist_name = await generate_playlist_name(
-                    mood=mood_data["mood"],
-                    explanation=mood_data["explanation"],
-                )
-
-                spotify_data = await create_spotify_playlist(
-                    access_token=access_token,
-                    spotify_user_id=spotify_user_id,
-                    name=playlist_name,
-                    track_uris=track_uris,
-                )
-
-                playlist = Playlist(
-                    user_id=current_user.id,
-                    mood_entry_id=mood_entry.id,
-                    mood_label=mood_data["mood"],
-                    name=playlist_name,
-                    spotify_playlist_id=spotify_data["spotify_playlist_id"],
-                    spotify_playlist_url=spotify_data["spotify_playlist_url"],
-                    track_ids=track_uris,
-                    track_count=len(track_uris),
-                )
-                db.add(playlist)
-                await db.commit()
-
-                playlist_generated = True
-                playlist_url = spotify_data["spotify_playlist_url"]
-
-        except Exception as e:
-            print(f"Spotify playlist generation failed: {e}")
 
     return MoodAnalysisResponse(
         mood_entry_id=mood_entry.id,
         mood=mood_data["mood"],
+        emoji=MOOD_EMOJI.get(mood_data["mood"], "🎵"),
         confidence=mood_data["confidence"],
-        explanation=mood_data["explanation"],
-        playlist_generated=playlist_generated,
-        playlist_url=playlist_url,
-        playlist_name=playlist_name,
+        explanation=mood_data.get("explanation", ""),
+        analysis_source=mood_data.get("source", "ai"),
+        playlist_generated=bool(result["tracks"]),
+        playlist_id=playlist.id,
+        playlist_name=name,
+        playlist_url=result["spotify_playlist_url"],
+        playlist_source=result["source"],
+        tracks=result["tracks"],
         created_at=mood_entry.created_at,
     )
 
 
 @router.get("/history")
 async def get_mood_history(
+    limit: int = 50,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Returns the last 20 mood entries for the current user,
-    ordered from most recent to oldest.
-    """
+    """Most recent mood entries first, each with its playlist."""
     result = await db.execute(
         select(MoodEntry)
+        .options(selectinload(MoodEntry.playlist))
         .where(MoodEntry.user_id == current_user.id)
         .order_by(MoodEntry.created_at.desc())
-        .limit(20)
+        .limit(max(1, min(limit, 200)))
     )
-    entries = result.scalars().all()
-    return entries
+    return [
+        {
+            "id": e.id,
+            "raw_text": e.raw_text,
+            "detected_mood": e.detected_mood,
+            "emoji": MOOD_EMOJI.get(e.detected_mood or "", "🎵"),
+            "confidence_score": e.confidence_score,
+            "explanation": (e.raw_ai_response or {}).get("explanation"),
+            "created_at": e.created_at,
+            "playlist": _serialize_playlist(e.playlist),
+        }
+        for e in result.scalars().all()
+    ]
+
+
+@router.delete("/history/{entry_id}", status_code=204)
+async def delete_mood_entry(
+    entry_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deletes one mood entry and its playlist from the history."""
+    result = await db.execute(
+        select(MoodEntry)
+        .options(selectinload(MoodEntry.playlist))
+        .where(MoodEntry.id == entry_id, MoodEntry.user_id == current_user.id)
+    )
+    entry = result.scalar_one_or_none()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    if entry.playlist:
+        await db.delete(entry.playlist)
+    await db.delete(entry)
+    await db.commit()

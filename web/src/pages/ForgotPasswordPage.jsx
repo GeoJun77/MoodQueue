@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../services/api';
+import { forgotPassword, getErrorMessage } from '../services/api';
 
 export default function ForgotPasswordPage() {
   const navigate = useNavigate();
@@ -18,10 +18,10 @@ export default function ForgotPasswordPage() {
     setLoading(true);
     setError('');
     try {
-      await api.post(`/api/auth/forgot-password?email=${encodeURIComponent(email)}`);
+      await forgotPassword(email.trim());
       setSent(true);
     } catch (err) {
-      setError('Something went wrong. Try again.');
+      setError(getErrorMessage(err, 'Something went wrong. Try again.'));
     } finally {
       setLoading(false);
     }

@@ -1,22 +1,14 @@
-# Start from the official lightweight Python image.
-# "slim" = no unnecessary build tools, smaller image size,
-# faster to download and deploy.
-FROM python:3.12-slim
-
-# Set the working directory inside the container.
-# All following commands run from /app.
+# API-only image (used when the web app is hosted elsewhere, e.g. Vercel).
+# For the all-in-one image (web + API), use the Dockerfile at the repo root.
+FROM python:3.12.7-slim-bookworm
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 DATA_DIR=/app/data
 WORKDIR /app
 
-# Copy requirements.txt FIRST, before the rest of the code.
-# Docker caching trick: if this file hasn't changed, Docker
-# skips the pip install step and uses the cached layer.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Now copy the rest of the application code
+RUN pip install -r requirements.txt
 COPY . .
 
-# Command that starts the server.
-# --reload automatically restarts when you edit your code.
-# --host 0.0.0.0 makes the server reachable outside the container.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+VOLUME /app/data
+EXPOSE 8000
+# $PORT is injected by Railway; defaults to 8000 locally.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]

@@ -1,107 +1,102 @@
-import httpx
-import base64
+"""
+Spotify integration (optional).
+
+Only used when SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET are set AND the
+user connected their account. Every function here may fail (Spotify
+policies change often): callers catch errors and fall back to the
+built-in catalog.
+"""
 import asyncio
+import base64
+import logging
 import random
+from urllib.parse import urlencode
+
+import httpx
+
 from app.core.config import settings
+from app.services.catalog import make_track
+
+log = logging.getLogger("moodqueue.spotify")
 
 SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
 SPOTIFY_API_URL = "https://api.spotify.com/v1"
-
 SPOTIFY_SCOPES = "playlist-modify-public playlist-modify-private user-read-private user-read-email"
+TIMEOUT = httpx.Timeout(15.0)
+MAX_TRACKS = 50
 
 
-def get_spotify_auth_url(user_id: str) -> str:
-    """
-    Builds the Spotify OAuth2 authorization URL.
-    show_dialog=true forces Spotify to show the permission screen again
-    to ensure new scopes are properly granted.
-    """
+def get_spotify_auth_url(state: str) -> str:
+    """Spotify OAuth2 authorization URL. `state` is a signed, short-lived token."""
     params = {
         "client_id": settings.SPOTIFY_CLIENT_ID,
         "response_type": "code",
         "redirect_uri": settings.SPOTIFY_REDIRECT_URI,
         "scope": SPOTIFY_SCOPES,
-        "state": user_id,
+        "state": state,
         "show_dialog": "true",
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
-    return f"{SPOTIFY_AUTH_URL}?{query}"
+    return f"{SPOTIFY_AUTH_URL}?{urlencode(params)}"
 
 
-async def exchange_code_for_tokens(code: str) -> dict:
-    """
-    Exchanges the authorization code for access and refresh tokens.
-    """
+def _basic_auth() -> str:
     credentials = f"{settings.SPOTIFY_CLIENT_ID}:{settings.SPOTIFY_CLIENT_SECRET}"
-    encoded = base64.b64encode(credentials.encode()).decode()
+    return base64.b64encode(credentials.encode()).decode()
 
-    async with httpx.AsyncClient() as client:
+
+async def _token_request(data: dict) -> dict:
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         response = await client.post(
             SPOTIFY_TOKEN_URL,
             headers={
-                "Authorization": f"Basic {encoded}",
+                "Authorization": f"Basic {_basic_auth()}",
                 "Content-Type": "application/x-www-form-urlencoded",
             },
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": settings.SPOTIFY_REDIRECT_URI,
-            },
+            data=data,
         )
         response.raise_for_status()
         return response.json()
 
 
-async def refresh_spotify_token(refresh_token: str) -> str:
-    """
-    Uses the refresh token to get a new access token
-    without asking the user to log in again.
-    """
-    credentials = f"{settings.SPOTIFY_CLIENT_ID}:{settings.SPOTIFY_CLIENT_SECRET}"
-    encoded = base64.b64encode(credentials.encode()).decode()
+async def exchange_code_for_tokens(code: str) -> dict:
+    return await _token_request({
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": settings.SPOTIFY_REDIRECT_URI,
+    })
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            SPOTIFY_TOKEN_URL,
-            headers={
-                "Authorization": f"Basic {encoded}",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-            data={
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-            },
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["access_token"]
+
+async def refresh_spotify_token(refresh_token: str) -> dict:
+    """Returns the token payload (may contain a rotated refresh_token)."""
+    return await _token_request({"grant_type": "refresh_token", "refresh_token": refresh_token})
 
 
 async def get_valid_access_token(user) -> str:
     """
-    Returns a valid Spotify access token.
-    Automatically refreshes if expired.
+    Returns a working access token, refreshing it if needed.
+    Updates the user object in place (caller commits).
     """
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             response = await client.get(
                 f"{SPOTIFY_API_URL}/me",
                 headers={"Authorization": f"Bearer {user.spotify_access_token}"},
             )
             if response.status_code == 200:
                 return user.spotify_access_token
-    except Exception:
+    except httpx.HTTPError:
         pass
 
-    return await refresh_spotify_token(user.spotify_refresh_token)
+    data = await refresh_spotify_token(user.spotify_refresh_token)
+    user.spotify_access_token = data["access_token"]
+    if data.get("refresh_token"):
+        user.spotify_refresh_token = data["refresh_token"]
+    return user.spotify_access_token
 
 
 async def get_spotify_user_id(access_token: str) -> str:
-    """
-    Fetches the Spotify user ID for the authenticated user.
-    """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         response = await client.get(
             f"{SPOTIFY_API_URL}/me",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -110,247 +105,89 @@ async def get_spotify_user_id(access_token: str) -> str:
         return response.json()["id"]
 
 
-async def search_single_query(
-    client: httpx.AsyncClient,
-    access_token: str,
-    query: str,
-    limit: int = 8,
-) -> list[str]:
-    """
-    Performs a single Spotify search and returns track URIs.
-    """
-    try:
-        clean_query = query.replace(",", "").replace("-", " ").strip()
+def _to_track(item: dict) -> dict | None:
+    if not item or not item.get("uri"):
+        return None
+    artists = ", ".join(a.get("name", "") for a in item.get("artists", []) if a.get("name"))
+    url = (item.get("external_urls") or {}).get("spotify")
+    return make_track(item.get("name", "Unknown"), artists or "Unknown", uri=item["uri"], url=url)
 
+
+async def _search(client: httpx.AsyncClient, access_token: str, query: str, limit: int) -> list[dict]:
+    """One Spotify track search. Never raises: returns [] on any error."""
+    try:
         response = await client.get(
             f"{SPOTIFY_API_URL}/search",
             headers={"Authorization": f"Bearer {access_token}"},
-            params={
-                "q": clean_query,
-                "type": "track",
-                "limit": limit,
-            },
-        )
-
-        if response.status_code != 200:
-            print(f"DEBUG search error for '{clean_query}': {response.status_code}")
-            return []
-
-        data = response.json()
-        tracks = data.get("tracks", {}).get("items", [])
-        return [track["uri"] for track in tracks if track.get("uri")]
-
-    except Exception as e:
-        print(f"DEBUG search exception for '{query}': {e}")
-        return []
-
-
-async def search_tracks_by_artist(
-    client: httpx.AsyncClient,
-    access_token: str,
-    artist: str,
-    limit: int = 10,
-) -> list[str]:
-    """
-    Searches for tracks by a specific artist using two strategies:
-    1. artist: prefix — finds official tracks by this artist
-    2. Plain name search — finds features, remixes, and collaborations
-    Both are merged and deduplicated for maximum coverage.
-    """
-    try:
-        # Strategy 1: strict artist search
-        response1 = await client.get(
-            f"{SPOTIFY_API_URL}/search",
-            headers={"Authorization": f"Bearer {access_token}"},
-            params={
-                "q": f"artist:{artist}",
-                "type": "track",
-                "limit": limit,
-            },
-        )
-
-        # Strategy 2: plain name search — catches features and remixes
-        response2 = await client.get(
-            f"{SPOTIFY_API_URL}/search",
-            headers={"Authorization": f"Bearer {access_token}"},
-            params={
-                "q": artist,
-                "type": "track",
-                "limit": limit,
-            },
-        )
-
-        uris = []
-        seen = set()
-
-        for response in [response1, response2]:
-            if response.status_code == 200:
-                tracks = response.json().get("tracks", {}).get("items", [])
-                for track in tracks:
-                    uri = track.get("uri")
-                    if uri and uri not in seen:
-                        seen.add(uri)
-                        uris.append(uri)
-
-        print(f"DEBUG artist '{artist}': found {len(uris)} tracks")
-        return uris
-
-    except Exception as e:
-        print(f"DEBUG artist search error for '{artist}': {e}")
-        return []
-
-
-async def search_tracks_by_genre(
-    client: httpx.AsyncClient,
-    access_token: str,
-    genre: str,
-    mood: str,
-    limit: int = 8,
-) -> list[str]:
-    """
-    Searches for tracks in a specific genre.
-    Combines genre with mood for more contextual results.
-    """
-    try:
-        query = f"{genre} {mood}"
-        response = await client.get(
-            f"{SPOTIFY_API_URL}/search",
-            headers={"Authorization": f"Bearer {access_token}"},
-            params={
-                "q": query,
-                "type": "track",
-                "limit": limit,
-            },
+            params={"q": query.replace(",", " ").strip(), "type": "track", "limit": limit},
         )
         if response.status_code != 200:
+            log.info("Spotify search %r -> HTTP %s", query, response.status_code)
             return []
-
-        data = response.json()
-        tracks = data.get("tracks", {}).get("items", [])
-        return [track["uri"] for track in tracks if track.get("uri")]
-
+        items = response.json().get("tracks", {}).get("items", [])
+        return [t for t in (_to_track(i) for i in items) if t]
     except Exception as e:
-        print(f"DEBUG genre search error for '{genre}': {e}")
+        log.info("Spotify search %r failed: %s", query, e)
         return []
+
+
+def _merge(results: list[list[dict]], seen: set[str]) -> list[dict]:
+    out = []
+    for tracks in results:
+        for track in tracks:
+            if track["uri"] not in seen:
+                seen.add(track["uri"])
+                out.append(track)
+    return out
 
 
 async def search_tracks_by_mood(
     access_token: str,
     mood_data: dict,
-    explicit_artists: list[str] = [],
-    explicit_genres: list[str] = [],
-) -> list[str]:
+    explicit_artists: list[str] | None = None,
+    explicit_genres: list[str] | None = None,
+) -> list[dict]:
     """
-    3-layer smart search system:
-
-    CASE 1 — Explicit artists detected:
-        → ONLY tracks from those artists, no mood filler at all
-        → Tracks shuffled so artists are mixed together
-        → e.g. "I want only Oklou, Addison Rae and Bad Bunny"
-
-    CASE 2 — Explicit genres detected (no artists):
-        → Genre tracks first, mood tracks fill the rest
-        → e.g. "I'm sad but I want electro and house"
-
-    CASE 3 — No explicit preferences:
-        → Pure AI mood queries + genre queries, all shuffled
-        → e.g. "I feel nostalgic tonight"
+    3-layer smart search:
+      1. Explicit artists  -> only their tracks (+ explicit genres), shuffled
+      2. Explicit genres   -> genre tracks first, mood tracks fill the rest
+      3. Otherwise         -> AI mood queries + genres, shuffled
     """
+    explicit_artists = explicit_artists or []
+    explicit_genres = explicit_genres or []
     mood = mood_data.get("mood", "happy")
-    ai_genres = mood_data.get("genres", ["pop", "indie"])
-    search_queries = mood_data.get("search_queries", [mood])
+    ai_genres = mood_data.get("genres") or ["pop", "indie"]
+    queries = mood_data.get("search_queries") or [mood]
 
-    async with httpx.AsyncClient() as client:
-
-        # CASE 1: Explicit artists → ONLY their tracks
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         if explicit_artists:
-            print(f"DEBUG artist-only mode: {explicit_artists}")
-            artist_tasks = [
-                search_tracks_by_artist(client, access_token, artist, limit=10)
-                for artist in explicit_artists
-            ]
-            # Also include explicit genres if mentioned alongside artists
-            genre_tasks = [
-                search_tracks_by_genre(client, access_token, genre, mood, limit=10)
-                for genre in explicit_genres
-            ]
+            tasks = []
+            for artist in explicit_artists:
+                tasks.append(_search(client, access_token, f"artist:{artist}", 10))
+                tasks.append(_search(client, access_token, artist, 10))
+            tasks += [_search(client, access_token, f"{g} {mood}", 10) for g in explicit_genres]
+            tracks = _merge(await asyncio.gather(*tasks), set())
+            random.shuffle(tracks)
+            return tracks[:MAX_TRACKS]
 
-            all_results = await asyncio.gather(*artist_tasks, *genre_tasks)
-
-            seen = set()
-            final_uris = []
-            for track_list in all_results:
-                for uri in track_list:
-                    if uri not in seen:
-                        seen.add(uri)
-                        final_uris.append(uri)
-
-            # Shuffle so tracks from different artists are interleaved
-            random.shuffle(final_uris)
-            print(f"DEBUG artist-only: {len(final_uris)} tracks")
-            return final_uris[:50]
-
-        # CASE 2: Explicit genres, no artists → genre first then mood
         if explicit_genres:
-            print(f"DEBUG genre-priority mode: {explicit_genres}")
-            genre_tasks = [
-                search_tracks_by_genre(client, access_token, genre, mood, limit=10)
-                for genre in explicit_genres
-            ]
-            mood_tasks = [
-                search_single_query(client, access_token, query, limit=6)
-                for query in search_queries
-            ]
-            all_results = await asyncio.gather(*genre_tasks, *mood_tasks)
+            genre_res = await asyncio.gather(
+                *[_search(client, access_token, f"{g} {mood}", 10) for g in explicit_genres]
+            )
+            mood_res = await asyncio.gather(*[_search(client, access_token, q, 6) for q in queries])
+            seen: set[str] = set()
+            tracks = _merge(genre_res, seen)
+            filler = _merge(mood_res, seen)
+            random.shuffle(filler)
+            return (tracks + filler)[:MAX_TRACKS]
 
-            n_genres = len(explicit_genres)
-            genre_results = all_results[:n_genres]
-            mood_results = all_results[n_genres:]
-
-            seen = set()
-            final_uris = []
-
-            for track_list in genre_results:
-                for uri in track_list:
-                    if uri not in seen:
-                        seen.add(uri)
-                        final_uris.append(uri)
-
-            mood_uris = []
-            for track_list in mood_results:
-                for uri in track_list:
-                    if uri not in seen:
-                        mood_uris.append(uri)
-                        seen.add(uri)
-            random.shuffle(mood_uris)
-            final_uris.extend(mood_uris)
-
-            print(f"DEBUG genre+mood: {len(final_uris)} tracks")
-            return final_uris[:50]
-
-        # CASE 3: No explicit preferences → pure AI mood queries
-        print(f"DEBUG pure mood mode: {len(search_queries)} queries")
-        mood_queries = search_queries.copy()
-        for genre in ai_genres[:4]:
-            mood_queries.append(f"{mood} {genre}")
-
-        mood_tasks = [
-            search_single_query(client, access_token, query, limit=6)
-            for query in mood_queries
-        ]
-        all_results = await asyncio.gather(*mood_tasks)
-
-        seen = set()
-        all_uris = []
-        for track_list in all_results:
-            for uri in track_list:
-                if uri not in seen:
-                    seen.add(uri)
-                    all_uris.append(uri)
-
-        random.shuffle(all_uris)
-        print(f"DEBUG pure mood: {len(all_uris)} tracks")
-        return all_uris[:50]
+        all_queries = list(queries) + [f"{mood} {g}" for g in ai_genres[:4]]
+        tracks = _merge(
+            await asyncio.gather(*[_search(client, access_token, q, 6) for q in all_queries]),
+            set(),
+        )
+        random.shuffle(tracks)
+        return tracks[:MAX_TRACKS]
 
 
 async def create_spotify_playlist(
@@ -359,17 +196,11 @@ async def create_spotify_playlist(
     name: str,
     track_uris: list[str],
 ) -> dict:
-    """
-    Creates a private playlist and adds up to 50 tracks.
-    Uses /items endpoint — correct replacement for deprecated /tracks.
-    """
-    async with httpx.AsyncClient() as client:
-        create_response = await client.post(
+    """Creates a private playlist and adds up to 50 tracks."""
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        create = await client.post(
             f"{SPOTIFY_API_URL}/me/playlists",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json",
-            },
+            headers={"Authorization": f"Bearer {access_token}"},
             json={
                 "name": name,
                 "description": "Generated by MoodQueue 🎵",
@@ -377,29 +208,24 @@ async def create_spotify_playlist(
                 "collaborative": False,
             },
         )
-
-        if create_response.status_code != 201:
-            print(f"DEBUG playlist creation error: {create_response.status_code} - {create_response.text}")
-
-        create_response.raise_for_status()
-        playlist = create_response.json()
-        print(f"DEBUG playlist created: {playlist['id']}")
-
-        await asyncio.sleep(1)
+        create.raise_for_status()
+        playlist = create.json()
 
         if track_uris:
-            add_response = await client.post(
+            await asyncio.sleep(0.5)
+            add = await client.post(
                 f"{SPOTIFY_API_URL}/playlists/{playlist['id']}/items",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                },
-                json={"uris": track_uris[:50]},
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"uris": track_uris[:MAX_TRACKS]},
             )
-            if add_response.status_code == 201:
-                print(f"DEBUG added {len(track_uris[:50])} tracks successfully")
-            else:
-                print(f"DEBUG add tracks error: {add_response.status_code} - {add_response.text}")
+            if add.status_code == 404:  # older endpoint name, just in case
+                add = await client.post(
+                    f"{SPOTIFY_API_URL}/playlists/{playlist['id']}/tracks",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    json={"uris": track_uris[:MAX_TRACKS]},
+                )
+            if add.status_code >= 300:
+                log.warning("Adding tracks failed: %s %s", add.status_code, add.text[:200])
 
         return {
             "spotify_playlist_id": playlist["id"],

@@ -1,246 +1,225 @@
 # 🎵 MoodQueue
 
-MoodQueue is a fullstack application that analyzes a user's mood through free-form text (multilingual) and automatically generates a personalized Spotify playlist using AI.
+**Describe how you feel, in any language — get a playlist that matches.**
+
+MoodQueue is a full-stack app (FastAPI + React + React Native) that analyzes free-form text to detect a mood and its context, then builds a personalized playlist. It uses AI (Groq / LLaMA 3.1) and Spotify when they are available, and **keeps working without them**: an offline mood engine and a built-in music catalog take over automatically.
+
+![Home](docs/screenshots/home.png)
+
+<p align="center"><img src="docs/screenshots/history.png" width="49%" alt="History"> <img src="docs/screenshots/mobile-login.png" width="24%" alt="Mobile"></p>
 
 ---
 
-## 🌐 Live Demo
+## ⚡ Quick start (one command)
 
-- **Web App**: https://mood-queue-one.vercel.app
-- **API**: https://moodqueue-production.up.railway.app
+Requires only [Docker](https://www.docker.com/).
+
+```bash
+git clone https://github.com/GeoJun77/moodqueue.git
+cd moodqueue
+docker compose up -d
+```
+
+Open **http://localhost:8000**, create an account, describe your mood. That's it: no API key, no database to install, no account anywhere.
+
+To enable the optional services (AI, Spotify, emails), copy `.env.example` to `.env`, fill in what you want, and run `docker compose up -d` again.
 
 ---
 
 ## 🧠 How it works
 
-1. The user describes their mood in free-form text (French, English, Spanish, etc.)
-2. The backend analyzes the text with **Groq (LLaMA 3.1 8B Instant)** — a free alternative to OpenAI
-3. The system detects explicitly mentioned artists and genres
-4. A playlist is generated on **Spotify** using a 3-layer search system:
-   - **Layer 1**: Explicitly mentioned artists → only their tracks
-   - **Layer 2**: Explicitly mentioned genres → genre tracks + mood
-   - **Layer 3**: AI-generated mood queries → shuffled results
+```
+ "Je suis nostalgique ce soir"
+            │
+            ▼
+ ┌──────────────────────┐   GROQ_API_KEY set and API up?
+ │   Mood analysis      │── yes ─▶ Groq LLaMA 3.1: mood, context, search queries (30+ contexts)
+ │                      │── no ──▶ Offline engine: multilingual keyword classifier (FR/EN/ES/PT)
+ └──────────┬───────────┘
+            │  mood · confidence · explanation · artists/genres mentioned
+            ▼
+ ┌──────────────────────┐   Spotify configured and account connected?
+ │   Playlist builder   │── yes ─▶ Real Spotify playlist, 3-layer search:
+ │                      │          1. artists you named  2. genres you named  3. mood queries
+ │                      │── no ──▶ Built-in catalog: 16 moods × 12 tracks,
+ └──────────────────────┘          with Spotify / YouTube / Deezer links for every track
+```
 
-> ⚠️ Note: This project uses **Groq** (free) instead of OpenAI (paid). The Groq API key is stored in the `OPENAI_API_KEY` environment variable for compatibility reasons.
+Every external call has a timeout and a fallback, so an expired key, a changed API or a dead service never breaks the app — it just gets a bit less smart.
+
+| Feature | With the service | Without it |
+|---|---|---|
+| Mood analysis | Groq LLaMA 3.1 (nuanced, 30+ contexts) | Offline engine (keywords, 4 languages) |
+| Playlist | Saved in your Spotify account | Built-in catalog + links to Spotify, YouTube, Deezer |
+| Password reset | Email via Resend | Reset link printed in the server logs |
+| Database | PostgreSQL | SQLite file (`backend/data/moodqueue.db`) |
 
 ---
 
-## 🏗️ Tech Stack
+## ✨ Features
+
+- Sign up / log in (JWT), forgot & reset password, delete account
+- Multilingual mood analysis (any language with AI; FR/EN/ES/PT offline)
+- Detection of explicitly mentioned artists and genres
+- 16 moods: happy, sad, angry, calm, energetic, nostalgic, romantic, focused, anxious, melancholic, spiritual, party, motivated, lonely, hopeful, homesick
+- Playlist with every track listed and playable on Spotify, YouTube or Deezer
+- Optional Spotify account linking (secure, signed OAuth state)
+- History of moods and playlists, with delete
+- Responsive web app (desktop sidebar, mobile tab bar)
+- iOS / Android app (Expo)
+- One Docker image = web app + API + database
+- Automatic database migrations at startup (Alembic)
+- 31 automated tests, CI on GitHub Actions (tests, web build, Docker build + smoke test, monthly run)
+
+---
+
+## 🏗️ Tech stack
 
 | Layer | Technology |
-|-------|------------|
-| Backend | Python 3.12, FastAPI, SQLAlchemy async |
-| Database | PostgreSQL 16 |
-| Cache | Redis 7 |
-| AI / LLM | Groq (LLaMA 3.1 8B Instant) |
-| Music | Spotify Web API (OAuth2) |
-| Auth | JWT (python-jose + bcrypt) |
-| Migrations | Alembic |
-| Containerization | Docker + Docker Compose |
-| Web Frontend | Vite + React |
-| Mobile Frontend | React Native (Expo SDK 51) |
-| HTTPS Tunnel | Ngrok (for local Spotify OAuth callback) |
-| Backend Hosting | Railway |
-| Frontend Hosting | Vercel |
-| Email Service | Resend |
+|---|---|
+| Backend | Python 3.12, FastAPI, SQLAlchemy 2 (async), Alembic |
+| Database | SQLite (default) or PostgreSQL |
+| AI (optional) | Groq — LLaMA 3.1 8B Instant |
+| Music (optional) | Spotify Web API (OAuth2) |
+| Email (optional) | Resend |
+| Auth | JWT (PyJWT) + bcrypt |
+| Web | React 19 + Vite, served by the backend |
+| Mobile | React Native (Expo) |
+| Ops | Docker, Docker Compose, GitHub Actions |
 
 ---
 
-## 📁 Project Structure
-``` bash
-moodqueue/
-├── backend/                  # FastAPI backend
-│   ├── app/
-│   │   ├── api/routes/       # auth.py, mood.py, playlist.py
-│   │   ├── core/             # config, database, security, dependencies
-│   │   ├── models/           # user.py, mood_entry.py, playlist.py
-│   │   ├── schemas/          # user.py, mood.py
-│   │   └── services/         # mood_service.py, spotify_service.py, email_service.py
-│   ├── alembic/              # database migrations
-│   ├── Dockerfile
-│   ├── Procfile              # Railway start command
-│   └── requirements.txt
-├── frontend/                 # Mobile app React Native (Expo)
-│   ├── src/
-│   │   ├── screens/          # LoginScreen, HomeScreen, HistoryScreen
-│   │   ├── services/         # api.js
-│   │   └── context/          # AuthContext.js
-│   └── App.js
-├── web/                      # Web app React (Vite)
-│   ├── src/
-│   │   ├── pages/            # LoginPage, HomePage, HistoryPage, ForgotPasswordPage, ResetPasswordPage
-│   │   ├── services/         # api.js
-│   │   └── context/          # AuthContext.jsx
-│   └── App.jsx
-└── docker-compose.yml
-```
----
+## 💻 Local development (without Docker)
 
-## 🚀 Getting Started (Local Development)
-
-### Prerequisites
-
-- Docker Desktop
-- Node.js 18+
-- Spotify Developer account
-- Groq account (groq.com) — free
-- Resend account (resend.com) — free
-- Ngrok (for local Spotify OAuth callback)
-
-### 1. Clone the repository
+**Backend** (Python 3.12):
 
 ```bash
-git clone https://github.com/GeoJun77/moodqueue.git
-cd moodqueue
+cd backend
+python -m venv .venv
+.venv\Scripts\activate            # Windows  (macOS/Linux: source .venv/bin/activate)
+pip install -r requirements-dev.txt
+uvicorn app.main:app --reload     # http://127.0.0.1:8000  — API docs at /docs
 ```
 
-### 2. Configure environment variables
-Create a backend/.env file:
-```bash
-DATABASE_URL=postgresql+asyncpg://moodqueue:moodqueue@db:5432/moodqueue
-REDIS_URL=redis://redis:6379
-SECRET_KEY=your_secret_key_here
-OPENAI_API_KEY=gsk_your_groq_api_key_here
-SPOTIFY_CLIENT_ID=your_spotify_client_id
-SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
-SPOTIFY_REDIRECT_URI=https://your-ngrok-url.ngrok-free.dev/api/playlist/callback
-RESEND_API_KEY=your_resend_api_key
-```
-### 3. Start the backend
-```bash
-docker-compose up -d
-```
+**Web** (Node 20+), in another terminal:
 
-The backend will be available at http://localhost:8000
-
-Swagger documentation at http://localhost:8000/docs
-
-### 4. Run database migrations
-```bash
-docker-compose exec backend alembic upgrade head
-```
-
-### 5. Start the Ngrok tunnel 
-In a separate terminal: 
-```bash
-ngrok http 8000
-```
-Copy the generated HTTPS URL and update:
-
-	•	backend/.env → SPOTIFY_REDIRECT_URI
-	•	Spotify Developer Dashboard → Redirect URIs
-	
-### 6. Start the web frontend
 ```bash
 cd web
 npm install
-npm run dev
-```
-The web app will be available at http://localhost:5173
-
-### 7. Start the mobile frontend
-```bash
-cd frontend
-npm install
-npm expo start
+npm run dev                       # http://localhost:5173 (API calls are proxied to :8000)
 ```
 
-Scan the QR code with Expo Go (available on App Store and Google Play).
-
-⚠️ Update frontend/src/services/api.js with your local IP:
+**Tests:**
 
 ```bash
-const BASE_URL = 'http://YOUR_LOCAL_IP:8000';
+cd backend && python -m pytest -q
 ```
 
-## ☁️ Production Deployment
-Backend — Railway
+**Mobile app** (Expo): copy `frontend/.env.example` to `frontend/.env`, set your computer's local IP, then `cd frontend && npm install && npx expo start` and scan the QR code with Expo Go.
 
-	•	PostgreSQL and Redis hosted on Railway
-	•	Auto-deploy on every git push to main
-	•	Pre-deploy command: alembic upgrade head
-	•	Environment variables configured in Railway dashboard
-	
-Frontend — Vercel
-
-	•	Auto-deploy on every git push to main
-	•	Environment variable: VITE_API_URL=https://moodqueue-production.up.railway.app
-	•	Live URL: https://mood-queue-one.vercel.app
-	
-Email — Resend
-
-	•	Password reset emails sent via Resend
-	•	Default sender: onboarding@resend.dev
 ---
-## ⚠️ Spotify API Limitation
 
-This project uses the Spotify Web API in **development mode**, which has the following restrictions since Spotify updated their policies in 2025:
+## ⚙️ Configuration
 
-- Maximum **5 users** can connect their Spotify account
-- Users must be **manually added** in the Spotify Developer Dashboard
-- Extended Quota Mode is no longer available for individual developers — only for organizations
+Everything is optional. See [`.env.example`](.env.example) for the full list.
 
-### Impact for demo purposes
+| Variable | Purpose | Default |
+|---|---|---|
+| `DATABASE_URL` | PostgreSQL URL (Railway/Heroku format accepted) | SQLite in `DATA_DIR` |
+| `SECRET_KEY` | JWT signing key | generated once, stored in `DATA_DIR` |
+| `GROQ_API_KEY` | AI analysis ([console.groq.com](https://console.groq.com)) | offline engine |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` / `SPOTIFY_REDIRECT_URI` | Spotify playlists | built-in catalog |
+| `RESEND_API_KEY` / `EMAIL_FROM` | Password reset emails | link in logs |
+| `FRONTEND_URL` | Web app URL if hosted separately (e.g. Vercel) | same origin |
+| `FRONTEND_ORIGINS` | Extra CORS origins | — |
 
-If you want to test the full playlist generation feature, please contact me so I can add your Spotify email to the authorized users list:
+The old `OPENAI_API_KEY` variable (holding a Groq `gsk_...` key) still works.
 
-📧 **gankouedzongeoffroyjunior@gmail.com**
+**Spotify setup:** create an app on the [Spotify dashboard](https://developer.spotify.com/dashboard), add the redirect URI `http://127.0.0.1:8000/api/playlist/callback` (or your public URL + `/api/playlist/callback`). In development mode Spotify only allows users you add manually in the dashboard (max 5) — everyone else automatically gets the built-in catalog.
 
-### What still works without Spotify
+---
 
-Even without connecting Spotify, you can still:
-- ✅ Create an account and log in
-- ✅ Describe your mood and see the AI analysis
-- ✅ See the detected mood, confidence score and explanation
-- ✅ View mood history
+## ☁️ Deployment
 
-The playlist generation requires a connected Spotify account.
+**Simplest: one service.** Deploy the root `Dockerfile` on any container host (Railway, Render, Fly.io, a VPS…). It serves the web app and the API on the same URL and reads `$PORT`. Mount a volume on `/app/data` to keep the SQLite database, or set `DATABASE_URL` to a PostgreSQL database.
 
-## 🎯 Features
-	•	✅ JWT Authentication (register / login)
-	•	✅ Forgot password / Reset password via email (Resend)
-	•	✅ Multilingual mood analysis via Groq LLaMA3
-	•	✅ Explicit artist and genre detection from text
-	•	✅ Automatic Spotify playlist generation
-	•	✅ 3-layer smart search system (artists → genres → AI mood)
-	•	✅ 30+ detected contexts (nostalgia, spirituality, workout, study, weather, etc.)
-	•	✅ Mood and playlist history
-	•	✅ Automatic light / dark mode
-	•	✅ Responsive web interface (Vite + React)
-	•	✅ iOS and Android mobile app (Expo)
-	•	✅ Deployed on Railway (backend) + Vercel (frontend)
+**Split setup (original):** API from `backend/` (its own `Dockerfile`, or `Procfile`) on Railway, web app from `web/` on Vercel with `VITE_API_URL=https://<your-api>`. Then set `FRONTEND_URL=https://<your-vercel-app>` on the API so reset links and the Spotify redirect point to the web app.
 
-## 🔌 Main API Endpoints
+Migrations run automatically at startup, so no pre-deploy command is needed (running `alembic upgrade head` beforehand is harmless).
+
+---
+
+## 🕰️ Bringing it back in 5, 10 or 20 years
+
+The project is built to survive its dependencies:
+
+1. **No external service is required.** If Groq, Spotify or Resend disappear, the app falls back to its offline engine, catalog and log-based reset links.
+2. **Pinned versions everywhere:** Python packages (`requirements.txt`), npm packages (`package-lock.json`), Docker base images (exact tags).
+3. **A full offline backup:** run `scripts/make-archive.sh` (or `scripts\make-archive.ps1` on Windows). It saves the complete Docker image (with every dependency already installed) and the source code into `archive/<date>/`. Keep that folder on an external drive and in the cloud.
+4. **To restore**, follow `RESTORE.txt` in the archive:
+   ```bash
+   docker load -i moodqueue-image.tar.gz
+   docker run -p 8000:8000 moodqueue:<date>
+   ```
+5. **The CI runs every month**, so if a dependency breaks you'll know long before you need the app.
+
+If even Docker is gone, the backend is plain Python: install Python 3.12 and `pip install -r backend/requirements.txt`, and the web app is static files in `web/dist`.
+
+---
+
+## 📁 Project structure
+
+```
+moodqueue/
+├── Dockerfile                 # all-in-one image (web + API)
+├── docker-compose.yml         # docker compose up -d
+├── .env.example               # optional configuration
+├── backend/
+│   ├── app/
+│   │   ├── api/routes/        # auth.py, mood.py, playlist.py
+│   │   ├── core/              # config, database, security, dependencies
+│   │   ├── models/            # User, MoodEntry, Playlist
+│   │   ├── schemas/           # request/response models
+│   │   └── services/
+│   │       ├── mood_service.py     # Groq analysis + automatic fallback
+│   │       ├── local_mood.py       # offline multilingual mood engine
+│   │       ├── catalog.py          # built-in music catalog (16 moods)
+│   │       ├── music_service.py    # Spotify or catalog playlist builder
+│   │       ├── spotify_service.py  # Spotify API (OAuth, search, playlists)
+│   │       └── email_service.py    # Resend emails or log fallback
+│   ├── alembic/               # database migrations (run at startup)
+│   ├── tests/                 # pytest suite
+│   └── Dockerfile             # API-only image
+├── web/                       # React + Vite web app
+├── frontend/                  # React Native (Expo) mobile app
+├── scripts/                   # make-archive.sh / .ps1
+└── .github/workflows/ci.yml
+```
+
+## 🔌 API
+
+Interactive documentation at **`/docs`** when the server runs.
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | /api/auth/register | Create an account |
-| POST | /api/auth/login | Log in |
-| GET | /api/auth/me | User profile |
-| POST | /api/auth/forgot-password | Send password reset email |
-| POST | /api/auth/reset-password | Reset password with token |
-| POST | /api/mood/analyze | Analyze mood + generate playlist |
-| GET | /api/mood/history | Mood history |
-| GET | /api/playlist/connect | Spotify OAuth URL |
-| GET | /api/playlist/callback | Spotify callback |
-| GET | /api/playlist/history | Playlist history |
+|---|---|---|
+| GET | `/api/status` | Enabled optional features |
+| POST | `/api/auth/register` | Create an account |
+| POST | `/api/auth/login` | Log in |
+| GET / DELETE | `/api/auth/me` | Profile / delete account |
+| POST | `/api/auth/forgot-password` | Send a reset link |
+| POST | `/api/auth/reset-password` | Set a new password |
+| POST | `/api/mood/analyze` | Analyze mood + build playlist |
+| GET | `/api/mood/history` | Moods with their playlists |
+| DELETE | `/api/mood/history/{id}` | Delete a mood |
+| GET | `/api/playlist/connect` | Spotify login URL |
+| GET | `/api/playlist/callback` | Spotify OAuth callback |
+| POST | `/api/playlist/disconnect` | Unlink Spotify |
+| GET | `/api/playlist/history` | Playlists |
 
-## 🧩 Context Detection System
-
-The Groq prompt covers more than 30 specific contexts:
-
-	•	Emotions: sadness, joy, anger, nostalgia, melancholy…
-	•	Activities: workout, studying, driving, cooking, reading…
-	•	Moments: morning, evening, late night, sunset…
-	•	Seasons / Weather: rain, summer, winter, sunshine…
-	•	Social: friends hangout, romantic date, family gathering, pregame, afterparty…
-	•	Cultural roots: African, Latin, Asian, Caribbean music…
-	•	Decades: 80s, 90s, 2000s, 2010s…
-	•	Specific genres: drill, phonk, amapiano, hyperpop, city pop…
-	•	Mental health: anxiety, meditation, burnout, grief…
+---
 
 ## 👤 Author
 
-Geoffroy GANKOUE
+**Geoffroy GANKOUE** — Full-stack project, Master's in Data & Artificial Intelligence (ESILV).
 
-Fullstack project — Master Data & Artificial Intelligence
+Licensed under the [MIT License](LICENSE).

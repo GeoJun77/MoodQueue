@@ -1,54 +1,54 @@
-import { createContext, useState, useContext, useEffect } from 'react';
-import { getMe } from '../services/api';
+import { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import { getMe, getStatus } from '../services/api';
 
-// Global auth context — any component can access user and auth functions
-// without passing props through every level of the tree
 const AuthContext = createContext(null);
+
+const storage = {
+  get: () => { try { return localStorage.getItem('access_token'); } catch { return null; } },
+  set: (t) => { try { localStorage.setItem('access_token', t); } catch { /* ignore */ } },
+  clear: () => { try { localStorage.removeItem('access_token'); } catch { /* ignore */ } },
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Optional server features: { ai, spotify, email }
+  const [features, setFeatures] = useState({ ai: false, spotify: false, email: false });
 
-  // On app start, check if a token exists in localStorage.
-  // If yes, reload the user automatically — no need to log in again.
+  const refreshUser = useCallback(async () => {
+    const response = await getMe();
+    setUser(response.data);
+    return response.data;
+  }, []);
+
   useEffect(() => {
-    const loadUser = async () => {
+    getStatus().then((r) => setFeatures(r.data.features)).catch(() => {});
+    (async () => {
       try {
-        const token = localStorage.getItem('access_token');
-        if (token) {
-          const response = await getMe();
-          setUser(response.data);
-        }
-      } catch (error) {
-        // Token expired or invalid — clear it
-        localStorage.removeItem('access_token');
+        if (storage.get()) await refreshUser();
+      } catch {
+        storage.clear(); // expired or invalid token
       } finally {
         setLoading(false);
       }
-    };
-    loadUser();
-  }, []);
+    })();
+  }, [refreshUser]);
 
-  // Called after login/register — saves token and loads user
   const signIn = async (token) => {
-    localStorage.setItem('access_token', token);
-    const response = await getMe();
-    setUser(response.data);
+    storage.set(token);
+    await refreshUser();
   };
 
-  // Called on sign out — clears everything
   const signOut = () => {
-    localStorage.removeItem('access_token');
+    storage.clear();
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, loading, features, signIn, signOut, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-// Custom hook — shortcut to access auth context anywhere
-// Usage: const { user, signOut } = useAuth();
 export const useAuth = () => useContext(AuthContext);

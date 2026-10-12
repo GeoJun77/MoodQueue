@@ -98,7 +98,11 @@ export default function HistoryScreen() {
           {item.playlist && (
             <TouchableOpacity
               style={[styles.playlistChip, { backgroundColor: theme.inputBg, borderColor: theme.border }]}
-              onPress={() => Linking.openURL(item.playlist.spotify_playlist_url)}
+              onPress={() => {
+                const p = item.playlist;
+                const url = p.spotify_playlist_url || p.tracks?.[0]?.youtube_url;
+                if (url) Linking.openURL(url);
+              }}
             >
               <LinearGradient colors={['#1DB954', '#17a34a']} style={styles.playlistChipIcon}>
                 <Ionicons name="musical-notes" size={12} color="#fff" />
