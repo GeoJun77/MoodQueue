@@ -1,0 +1,30 @@
+# Render Blueprint — creates the whole app (web interface + API) as ONE
+# free Docker web service. In Render: New > Blueprint > pick this repo.
+#
+# The free plan has no persistent disk, so use an external Postgres
+# (e.g. Neon, free and permanent) through DATABASE_URL, otherwise the
+# SQLite data is wiped at each restart.
+services:
+  - type: web
+    name: moodqueue
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # Render asks for it: paste the Neon connection string
+      - key: SECRET_KEY
+        generateValue: true  # random, kept across restarts
+      - key: GROQ_API_KEY
+        sync: false          # optional: AI analysis (empty = offline engine)
+      - key: SPOTIFY_CLIENT_ID
+        sync: false          # optional
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false          # optional
+      - key: SPOTIFY_REDIRECT_URI
+        sync: false          # optional: https://<your-app>.onrender.com/api/playlist/callback
+      - key: RESEND_API_KEY
+        sync: false          # optional: password reset emails

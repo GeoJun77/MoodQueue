@@ -141,7 +141,9 @@ The old `OPENAI_API_KEY` variable (holding a Groq `gsk_...` key) still works.
 
 ## ☁️ Deployment
 
-**Simplest: one service.** Deploy the root `Dockerfile` on any container host (Railway, Render, Fly.io, a VPS…). It serves the web app and the API on the same URL and reads `$PORT`. Mount a volume on `/app/data` to keep the SQLite database, or set `DATABASE_URL` to a PostgreSQL database.
+**Free & recommended: Render + Neon.** Create a free Postgres on [neon.com](https://neon.com) and copy its connection string (`?sslmode=require` URLs are supported). On [render.com](https://render.com): *New → Blueprint →* this repo. `render.yaml` creates the service; paste the Neon URL into `DATABASE_URL` and leave the optional keys empty if you don't need them. The app is then live at `https://<name>.onrender.com` (the free instance sleeps after 15 min idle; the first visit takes ~1 min to wake it).
+
+**Any other host: one service.** Deploy the root `Dockerfile` on any container host (Railway, Render, Fly.io, a VPS…). It serves the web app and the API on the same URL and reads `$PORT`. Mount a volume on `/app/data` to keep the SQLite database, or set `DATABASE_URL` to a PostgreSQL database.
 
 **Split setup (original):** API from `backend/` (its own `Dockerfile`, or `Procfile`) on Railway, web app from `web/` on Vercel with `VITE_API_URL=https://<your-api>`. Then set `FRONTEND_URL=https://<your-vercel-app>` on the API so reset links and the Spotify redirect point to the web app.
 

@@ -5,7 +5,27 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 
+from sqlalchemy.engine import make_url
+
 from app.core.config import settings, BACKEND_DIR
+
+
+def asyncpg_url_and_args(url: str) -> tuple[str, dict]:
+    """
+    Hosted Postgres (Neon, Supabase, Render...) gives libpq-style URLs like
+    ...?sslmode=require&channel_binding=require. asyncpg rejects those
+    parameters, so we strip them and translate sslmode into asyncpg's `ssl`.
+    (Alembic uses psycopg2, which understands them, so it keeps the raw URL.)
+    """
+    u = make_url(url)
+    query = dict(u.query)
+    sslmode = query.pop("sslmode", None)
+    query.pop("channel_binding", None)
+    connect_args: dict = {}
+    if sslmode:
+        # asyncpg accepts the same mode names as libpq
+        connect_args["ssl"] = sslmode
+    return u.set(query=query).render_as_string(hide_password=False), connect_args
 
 # The engine is the physical connection to the database.
 # SQLite needs a couple of tweaks; Postgres gets pool_pre_ping so
@@ -24,8 +44,12 @@ if settings.is_sqlite:
         cur.execute("PRAGMA journal_mode=WAL")
         cur.close()
 else:
+    async_url, pg_connect_args = asyncpg_url_and_args(settings.DATABASE_URL)
     engine = create_async_engine(
-        settings.DATABASE_URL, echo=settings.DEBUG, pool_pre_ping=True
+        async_url,
+        echo=settings.DEBUG,
+        pool_pre_ping=True,
+        connect_args=pg_connect_args,
     )
 
 # Each call creates an independent session for one HTTP request
