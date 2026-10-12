@@ -4,7 +4,9 @@
 
 MoodQueue is a full-stack app (FastAPI + React + React Native) that analyzes free-form text to detect a mood and its context, then builds a personalized playlist. It uses AI (Groq / LLaMA 3.1) and Spotify when they are available, and **keeps working without them**: an offline mood engine and a built-in music catalog take over automatically.
 
-🌐 **Live demo: [moodqueue.onrender.com](https://moodqueue.onrender.com)** — free hosting, the first visit can take ~1 min while the server wakes up.
+🌐 **Live demo: [moodqueue.onrender.com](https://moodqueue.onrender.com)** — hosted for free on Render + Neon, the first visit can take ~1 min while the server wakes up.
+
+> Anyone can create an account and get playlists (built-in catalog with Spotify / YouTube / Deezer links). **Saving playlists directly to a Spotify account** is limited to invited users because of Spotify's API rules — see the *Spotify limitations* section below.
 
 ![Home](docs/screenshots/home.png)
 
@@ -17,7 +19,7 @@ MoodQueue is a full-stack app (FastAPI + React + React Native) that analyzes fre
 Requires only [Docker](https://www.docker.com/).
 
 ```bash
-git clone https://github.com/GeoJun77/moodqueue.git
+git clone https://github.com/GeoJun77/MoodQueue.git
 cd moodqueue
 docker compose up -d
 ```
@@ -71,7 +73,7 @@ Every external call has a timeout and a fallback, so an expired key, a changed A
 - iOS / Android app (Expo)
 - One Docker image = web app + API + database
 - Automatic database migrations at startup (Alembic)
-- 31 automated tests, CI on GitHub Actions (tests, web build, Docker build + smoke test, monthly run)
+- 34 automated tests, CI on GitHub Actions (tests, web build, Docker build + smoke test, monthly run)
 
 ---
 
@@ -150,6 +152,35 @@ The old `OPENAI_API_KEY` variable (holding a Groq `gsk_...` key) still works.
 **Split setup (original):** API from `backend/` (its own `Dockerfile`, or `Procfile`) on Railway, web app from `web/` on Vercel with `VITE_API_URL=https://<your-api>`. Then set `FRONTEND_URL=https://<your-vercel-app>` on the API so reset links and the Spotify redirect point to the web app.
 
 Migrations run automatically at startup, so no pre-deploy command is needed (running `alembic upgrade head` beforehand is harmless).
+
+**Current production setup**
+
+| Part | Service | Notes |
+|---|---|---|
+| Web app + API | [Render](https://render.com) (free web service, Docker) | `render.yaml`, auto-deploy on every push to `main` |
+| Database | [Neon](https://neon.com) (free Postgres) | direct connection string (pooling off), `?sslmode=require` supported |
+| Spotify | Spotify for Developers app | redirect URI `https://moodqueue.onrender.com/api/playlist/callback` |
+
+**Enabling Spotify on a deployment**
+
+1. On [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard), create an app with the **Web API** and the redirect URI `https://<your-app>/api/playlist/callback`.
+2. In *User Management*, add the Spotify email of every person who will connect their account.
+3. On the host (Render → *Environment*), set `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` and `SPOTIFY_REDIRECT_URI` (same URL as step 1), then redeploy.
+4. `GET /api/status` should now return `"spotify": true`.
+
+---
+
+## ⚠️ Spotify limitations
+
+Spotify restricts apps that are not run by a registered organization:
+
+- The app stays in **development mode**: at most **5 Spotify users**, each added manually in the dashboard (*User Management*).
+- The **owner of the Spotify developer app must have Spotify Premium**, otherwise the Web API is blocked for the whole app.
+- Extended quota (public access) is only granted to organizations.
+
+That's why MoodQueue never depends on Spotify: without a linked account, every analysis still returns a full playlist from the built-in catalog, with links to open each track on Spotify, YouTube or Deezer.
+
+Want to try the Spotify integration on the live demo? Contact me with the email of your Spotify account: 📧 gankouedzongeoffroyjunior@gmail.com
 
 ---
 
