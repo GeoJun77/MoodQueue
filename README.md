@@ -6,7 +6,7 @@ MoodQueue is a full-stack app (FastAPI + React + React Native) that analyzes fre
 
 🌐 **Live demo: [moodqueue.onrender.com](https://moodqueue.onrender.com)** — hosted for free on Render + Neon, the first visit can take ~1 min while the server wakes up.
 
-> Anyone can create an account and get playlists (built-in catalog with Spotify / YouTube / Deezer links). **Saving playlists directly to a Spotify account** is limited to invited users because of Spotify's API rules — see the *Spotify limitations* section below.
+> Anyone can create an account, get an **AI mood analysis** (Groq · gpt-oss-20b) and a playlist (built-in catalog with Spotify / YouTube / Deezer links). **Saving playlists directly to a Spotify account** is limited to invited users because of Spotify's API rules — see the *Spotify limitations* section below.
 
 ![Home](docs/screenshots/home.png)
 
@@ -159,7 +159,11 @@ Migrations run automatically at startup, so no pre-deploy command is needed (run
 |---|---|---|
 | Web app + API | [Render](https://render.com) (free web service, Docker) | `render.yaml`, auto-deploy on every push to `main` |
 | Database | [Neon](https://neon.com) (free Postgres) | direct connection string (pooling off), `?sslmode=require` supported |
-| Spotify | Spotify for Developers app | redirect URI `https://moodqueue.onrender.com/api/playlist/callback` |
+| AI | [Groq](https://console.groq.com) (free API key) | model `openai/gpt-oss-20b`, set with `GROQ_API_KEY` |
+| Spotify | Spotify for Developers app (owner with Premium) | redirect URI `https://moodqueue.onrender.com/api/playlist/callback` |
+| Email | — (not configured) | reset links are written to the Render logs |
+
+Check what is enabled at any time: [`/api/status`](https://moodqueue.onrender.com/api/status).
 
 **Enabling Spotify on a deployment**
 
