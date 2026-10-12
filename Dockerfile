@@ -7,7 +7,7 @@
 # Base images are pinned to exact versions so the build stays reproducible.
 
 # ---- 1. Build the web app ---------------------------------------------------
-FROM node:22.11.0-bookworm-slim AS web
+FROM node:22.12.0-bookworm-slim AS web
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
