@@ -2,7 +2,7 @@
 
 **Describe how you feel, in any language — get a playlist that matches.**
 
-MoodQueue is a full-stack app (FastAPI + React + React Native) that analyzes free-form text to detect a mood and its context, then builds a personalized playlist. It uses AI (Groq / LLaMA 3.1) and Spotify when they are available, and **keeps working without them**: an offline mood engine and a built-in music catalog take over automatically.
+MoodQueue is a full-stack app (FastAPI + React + React Native) that analyzes free-form text to detect a mood and its context, then builds a personalized playlist. It uses AI (Groq / gpt-oss-20b) and Spotify when they are available, and **keeps working without them**: an offline mood engine and a built-in music catalog take over automatically.
 
 🌐 **Live demo: [moodqueue.onrender.com](https://moodqueue.onrender.com)** — hosted for free on Render + Neon, the first visit can take ~1 min while the server wakes up.
 
@@ -37,7 +37,7 @@ To enable the optional services (AI, Spotify, emails), copy `.env.example` to `.
             │
             ▼
  ┌──────────────────────┐   GROQ_API_KEY set and API up?
- │   Mood analysis      │── yes ─▶ Groq LLaMA 3.1: mood, context, search queries (30+ contexts)
+ │   Mood analysis      │── yes ─▶ Groq gpt-oss-20b: mood, context, search queries (30+ contexts)
  │                      │── no ──▶ Offline engine: multilingual keyword classifier (FR/EN/ES/PT)
  └──────────┬───────────┘
             │  mood · confidence · explanation · artists/genres mentioned
@@ -53,7 +53,7 @@ Every external call has a timeout and a fallback, so an expired key, a changed A
 
 | Feature | With the service | Without it |
 |---|---|---|
-| Mood analysis | Groq LLaMA 3.1 (nuanced, 30+ contexts) | Offline engine (keywords, 4 languages) |
+| Mood analysis | Groq gpt-oss-20b (nuanced, 30+ contexts) | Offline engine (keywords, 4 languages) |
 | Playlist | Saved in your Spotify account | Built-in catalog + links to Spotify, YouTube, Deezer |
 | Password reset | Email via Resend | Reset link printed in the server logs |
 | Database | PostgreSQL | SQLite file (`backend/data/moodqueue.db`) |
@@ -73,7 +73,7 @@ Every external call has a timeout and a fallback, so an expired key, a changed A
 - iOS / Android app (Expo)
 - One Docker image = web app + API + database
 - Automatic database migrations at startup (Alembic)
-- 34 automated tests, CI on GitHub Actions (tests, web build, Docker build + smoke test, monthly run)
+- 38 automated tests, CI on GitHub Actions (tests, web build, Docker build + smoke test, monthly run)
 
 ---
 
@@ -83,7 +83,7 @@ Every external call has a timeout and a fallback, so an expired key, a changed A
 |---|---|
 | Backend | Python 3.12, FastAPI, SQLAlchemy 2 (async), Alembic |
 | Database | SQLite (default) or PostgreSQL |
-| AI (optional) | Groq — LLaMA 3.1 8B Instant |
+| AI (optional) | Groq — OpenAI gpt-oss-20b (model configurable with `GROQ_MODEL`) |
 | Music (optional) | Spotify Web API (OAuth2) |
 | Email (optional) | Resend |
 | Auth | JWT (PyJWT) + bcrypt |

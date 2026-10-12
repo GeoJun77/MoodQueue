@@ -40,17 +40,40 @@ def _parse_json(raw: str) -> dict:
     return json.loads(match.group(0) if match else raw)
 
 
+REASONING_MODEL_PREFIXES = ("openai/gpt-oss", "qwen/qwen3")
+
+
+def _chat_params(max_tokens: int) -> dict:
+    """
+    Reasoning models (gpt-oss, qwen3...) "think" before answering and those
+    hidden tokens count against max_tokens: with a small limit the answer
+    would come back empty. For them we keep the thinking short and add
+    headroom. Classic models get the limit unchanged.
+    """
+    model = settings.GROQ_MODEL
+    if model.startswith(REASONING_MODEL_PREFIXES):
+        return {
+            "max_tokens": max_tokens + settings.AI_REASONING_TOKENS,
+            "extra_body": {"reasoning_effort": settings.AI_REASONING_EFFORT},
+        }
+    return {"max_tokens": max_tokens}
+
+
 async def _chat(messages: list[dict], temperature: float, max_tokens: int) -> str:
     response = await asyncio.wait_for(
         _get_client().chat.completions.create(
             model=settings.GROQ_MODEL,
             messages=messages,
             temperature=temperature,
-            max_tokens=max_tokens,
+            **_chat_params(max_tokens),
         ),
         timeout=settings.AI_TIMEOUT_SECONDS,
     )
-    return response.choices[0].message.content.strip()
+    content = (response.choices[0].message.content or "").strip()
+    if not content:
+        # Empty answer (e.g. token limit hit while reasoning) -> local fallback
+        raise ValueError("empty AI response")
+    return content
 
 
 async def analyze_mood(text: str) -> dict:

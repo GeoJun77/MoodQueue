@@ -36,7 +36,12 @@ class Settings(BaseSettings):
     # for backward compatibility with the original deployment.
     GROQ_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.1-8b-instant"
+    # llama-3.1-8b-instant was shut down by Groq on 2026-08-16;
+    # openai/gpt-oss-20b is Groq's recommended replacement.
+    GROQ_MODEL: str = "openai/gpt-oss-20b"
+    # Reasoning models only: thinking effort and extra token budget for it
+    AI_REASONING_EFFORT: str = "low"
+    AI_REASONING_TOKENS: int = 1024
     AI_TIMEOUT_SECONDS: float = 15.0
 
     # Spotify — optional
