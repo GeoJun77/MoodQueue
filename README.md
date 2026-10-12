@@ -4,6 +4,8 @@
 
 MoodQueue is a full-stack app (FastAPI + React + React Native) that analyzes free-form text to detect a mood and its context, then builds a personalized playlist. It uses AI (Groq / LLaMA 3.1) and Spotify when they are available, and **keeps working without them**: an offline mood engine and a built-in music catalog take over automatically.
 
+🌐 **Live demo: [moodqueue.onrender.com](https://moodqueue.onrender.com)** — free hosting, the first visit can take ~1 min while the server wakes up.
+
 ![Home](docs/screenshots/home.png)
 
 <p align="center"><img src="docs/screenshots/history.png" width="49%" alt="History"> <img src="docs/screenshots/mobile-login.png" width="24%" alt="Mobile"></p>
